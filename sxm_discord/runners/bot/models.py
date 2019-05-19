@@ -97,7 +97,7 @@ class PlexCommand(Command):
 class SXMCommand(Command):
     @property
     def cog_name(self):
-        return "SiriusXM Player"
+        return "SXM Player"
 
 
 class SiriusXMActivity(Game):
@@ -133,8 +133,8 @@ class SiriusXMActivity(Game):
     ) -> None:
         """ Updates activity object from current channel playing """
 
-        self.state = "Playing music from SiriusXM"
-        self.name = f"SiriusXM {channel.pretty_name}"
+        self.state = "Playing music from SXM"
+        self.name = f"SXM {channel.pretty_name}"
         self.large_image_url = None
         self.large_image_text = None
 

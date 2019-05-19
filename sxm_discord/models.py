@@ -96,7 +96,7 @@ class DictState:
     def __init__(self, state_dict: dict, lock: Lock):  # type: ignore
         self._lock = lock  # type: ignore
         self._state_dict = state_dict
-        self._log = logging.getLogger("mortis_music.shared_dict")
+        self._log = logging.getLogger("sxm_discord.shared_dict")
 
     def __getattr__(self, attr: str):
         if not attr.startswith("_") and self._state_dict is not None:
@@ -134,7 +134,7 @@ class DictState:
 
 
 class XMState(DictState):
-    """Class to store state SiriusXM Radio player for Discord Bot"""
+    """Class to store state SXM Radio player for Discord Bot"""
 
     _channels: Optional[List[XMChannel]] = None
     _live_update_time: Optional[int] = None
@@ -253,7 +253,7 @@ class XMState(DictState):
 
     @property
     def start_time(self) -> Union[int, None]:
-        """ Returns the start time for the current SiriusXM channel """
+        """ Returns the start time for the current SXM channel """
 
         if self.live is None:
             return None
@@ -308,7 +308,7 @@ class XMState(DictState):
         return None
 
     def set_channel(self, channel_id: str) -> None:
-        """ Sets active SiriusXM channel """
+        """ Sets active SXM channel """
 
         self._lock_debug("acquiring lock: set_channel")
         with self._lock:
@@ -318,7 +318,7 @@ class XMState(DictState):
             self._state_dict["start_time"] = None
 
     def reset_channel(self) -> None:
-        """ Removes active SiriusXM channel """
+        """ Removes active SXM channel """
 
         self._lock_debug("acquiring lock: reset_channel")
         with self._lock:

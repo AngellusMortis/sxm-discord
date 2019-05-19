@@ -1,4 +1,4 @@
-* Discord SiriusXM Bot version:
+* sxm-discord version:
 * Python version:
 * Operating System:
 

@@ -1,5 +1,5 @@
-Welcome to Mortis Music Bot's documentation!
-================================================
+Welcome to sxm-discord's documentation!
+=======================================
 
 .. toctree::
    :maxdepth: 2

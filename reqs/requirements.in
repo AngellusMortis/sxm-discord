@@ -1,11 +1,2 @@
-click>=7.0
-coloredlogs
-discord.py[voice]
-humanize
-ipython
-plexapi
-psutil
-pyyaml
-sqlalchemy
-sxm
-tabulate
+discord.py
+sxm-player

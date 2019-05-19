@@ -27,7 +27,7 @@ class BaseRunner:
     ):
 
         self._delay = delay
-        self._log = logging.getLogger(f"mortis_music.{name}")
+        self._log = logging.getLogger(f"sxm_discord.{name}")
 
         self.name = name
         self.state = XMState(state_dict, lock, db_reset=reset_songs)

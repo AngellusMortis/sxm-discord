@@ -5,31 +5,15 @@ Usage
 Command Line Interface
 ======================
 
-Help
-----
-
-Everything is outlined via command line via the `--help` option:
-
-.. code-block:: console
-
-    $ mortis-music --help
-
 Basic Bot
 ---------
 
-Command to just run the bot with live SiriusXM radio and not archiving or
+Command to just run the bot with live SXM radio and not archiving or
 archived song/show playback.
 
 .. code-block:: console
 
-    $ mortis-music --username sxm_username --password sxm_password --token discord_bot_token
-
-SiriusXM Username, SiriusXM password and Discord Bot token arguments are
-optional, if you leave one off, you will be prompted:
-
-.. code-block:: console
-
-    $ mortis-music --username sxm_username
+    $ sxm-player --username sxm_username --password sxm_password --token discord_bot_token
 
 Username, password, and Discord Bot token can also be passed via the
 `SXM_USERNAME`, `SXM_PASSWORD`, and `DISCORD_TOKEN` environment variables.
@@ -39,14 +23,7 @@ Username, password, and Discord Bot token can also be passed via the
     $ export SXM_USERNAME='sxm_username'
     $ export SXM_PASSWORD='sxm_password'
     $ export DISCORD_TOKEN='discord_bot_token'
-    $ mortis-music
-
-If you are a SiriusXM subscriber in Canada, you will need to change your
-region to `CA`
-
-.. code-block:: console
-
-    $ mortis-music -r CA
+    $ sxm-player
 
 By default, all of the bot commands are prefixed with `/sxm `, if you would
 like that to be something different, you can. This will set the command prefix
@@ -54,42 +31,7 @@ to `$`.
 
 .. code-block:: console
 
-    $ mortis-music --prefix $
-
-
-Bot + Archiving/Archive Playback
---------------------------------
-
-This will run the bot, but also arhive the HLS live streams as they are played
-and splice files out for the songs/shows that have been played.
-
-.. code-block:: console
-
-    $ mortis-music -o /path/to/arhive/folder
-
-This will create the following directory structure in the output folder::
-
-    archive
-        <channel_id>
-            <channel_id>.<start_time>.<end_time>.mp3
-    processed
-        <channel_id>
-            shows
-                ... organized mp3 files for shows here
-            songs
-                ... organized mp3 files for songs here
-        songs.db
-    streams
-        <channel_id>.mp3
-
-You should never touch any of these files while the bot is running. Especially
-the `mp3` files in the `streams` folder.
-
-`mp3` files for songs/shows are not currently tagged with any metadata because
-they are not a perfect fit for when the song/show starts. As a result, I do not
-recommend trying to use the `mp3` files that get generated in any other type of
-music player. If anyone wants to help get them to be a better fit, help would
-be appreicated!
+    $ sxm-player --prefix $
 
 
 Discord Commands
@@ -152,16 +94,16 @@ Prints a list of the most recent songs played. Defaults to top 3, can display up
     $ /sxm recent       # displays top 3 songs/shows
     $ /sxm recent 1     # displaying the most recent song/show
 
-SiriusXM Commands
------------------
+SXM Commands
+------------
 
-PMs the user a full list of all avaiable SiriusXM channels
+PMs the user a full list of all avaiable SXM channels
 
 .. code-block:: console
 
     $ /sxm channels
 
-Starts playing a SiriusXM channel. `<channel_id>` can be the channel ID,
+Starts playing a SXM channel. `<channel_id>` can be the channel ID,
 the channel name or the station number that you see in your car or on the
 Web player.
 

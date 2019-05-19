@@ -33,7 +33,7 @@ class SXMCommands:
     async def _play_archive_file(
         self, ctx: Context, guid: str = None, is_song: bool = False
     ) -> None:
-        """ Quues a song/show file from SiriusXM archive to be played"""
+        """ Quues a song/show file from SXM archive to be played"""
 
         channel = ctx.message.channel
         author = ctx.message.author
@@ -126,7 +126,7 @@ class SXMCommands:
 
     async def _sxm_now_playing(self, ctx: Context) -> None:
         """ Sends message for what is currently playing on the
-        SiriusXM HLS live stream """
+        SXM HLS live stream """
 
         xm_channel = self.state.get_channel(self.state.active_channel_id)
 
@@ -186,9 +186,7 @@ class SXMCommands:
             embed.set_thumbnail(url=np_thumbnail)
         if np_album is not None:
             embed.add_field(name="Album", value=np_album)
-        embed.add_field(
-            name="SiriusXM", value=xm_channel.pretty_name, inline=True
-        )
+        embed.add_field(name="SXM", value=xm_channel.pretty_name, inline=True)
         if np_episode_title is not None:
             embed.add_field(name="Show", value=np_episode_title, inline=True)
 
@@ -200,7 +198,7 @@ class SXMCommands:
 
     async def _sxm_recent(self, ctx: Context, count: int) -> None:
         """ Respons with what has recently played on the
-        SiriusXM HLS live stream """
+        SXM HLS live stream """
 
         xm_channel = self.state.get_channel(self.state.active_channel_id)
 
@@ -252,7 +250,7 @@ class SXMCommands:
 
     @command(cls=MusicPlayerGroup)
     async def sxm(self, ctx: Context) -> None:
-        """Command for playing music from SiriusXM"""
+        """Command for playing music from SXM"""
         if ctx.invoked_subcommand is None:
             await self._invalid_command(ctx, group="sxm")
 
@@ -260,7 +258,7 @@ class SXMCommands:
     async def sxm_channel(
         self, ctx: Context, *, xm_channel: XMChannelConverter
     ) -> None:
-        """Plays a specific SiriusXM channel"""
+        """Plays a specific SXM channel"""
 
         if not await require_voice(ctx):
             return
@@ -297,7 +295,7 @@ class SXMCommands:
 
     @sxm.command(name="channels", pass_context=True, cls=SXMCommand)
     async def sxm_channels(self, ctx: Context) -> None:
-        """Bot will PM with list of possible SiriusXM channel"""
+        """Bot will PM with list of possible SXM channel"""
 
         author = ctx.message.author
 
@@ -317,7 +315,7 @@ class SXMCommands:
         )
 
         self._log.debug(f"sending {len(display_channels)} for {author}")
-        await author.send("SiriusXM Channels:")
+        await author.send("SXM Channels:")
         while len(channel_table) > 0:
             message = ""
             if len(channel_table) < 1900:
@@ -341,7 +339,7 @@ class SXMCommands:
         threshold: int = 40,
     ) -> None:
         """ Play a random playlist from archived songs
-        for a SiriusXM channel. Can use comma seperated list of channel_ids
+        for a SXM channel. Can use comma seperated list of channel_ids
         to play from multiple channels (max 5 channels) """
 
         if not await require_voice(ctx):

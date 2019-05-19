@@ -30,7 +30,7 @@ def run(
     *args,
     **kwargs
 ) -> None:
-    logger = logging.getLogger("mortis_music.runner")
+    logger = logging.getLogger("sxm_discord.runner")
 
     kwargs["state_dict"] = state_dict
     kwargs["lock"] = lock

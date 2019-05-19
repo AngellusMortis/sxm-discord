@@ -1,7 +1,13 @@
+bandit
 black
 coverage
 coveralls
+doc8
 flake8
+flake8-bugbear
+flake8-builtins
+flake8-commas
+flake8-comprehensions
 mypy
 pip-tools
 pylama
@@ -14,3 +20,4 @@ sphinx-rtd-theme
 tox
 twine
 versioneer
+wheel

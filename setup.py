@@ -5,13 +5,12 @@
 
 from setuptools import find_packages, setup
 
-# for pip >= 10
-try:
-    from pip._internal.req import parse_requirements
-# for pip <= 9.0.3
-except ImportError:
-    from pip.req import parse_requirements
-from setuptools import find_packages, setup
+
+def parse_requirements(filename):
+    """ load requirements from a pip requirements file """
+    lines = (line.strip() for line in open(filename))
+    return [line for line in lines if line and not line.startswith("#")]
+
 
 with open("README.rst") as readme_file:
     readme = readme_file.read()
@@ -27,12 +26,7 @@ req_files = {
 
 requirements = {}
 for req, req_file in req_files.items():
-    reqs = parse_requirements(req_file, session="fake")
-    requirements[req] = [str(req.req) for req in reqs]
-
-setup_requirements = ["pytest-runner"]
-
-test_requirements = ["pytest"]
+    requirements[req] = parse_requirements(req_file)
 
 setup(
     author="Christopher Bailey",
@@ -50,23 +44,23 @@ setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
     ],
-    description="A Discord bot that will play SiriusXM radio stations.",
-    entry_points={"console_scripts": ["mortis-music=mortis_music.cli:main"]},
+    description=(
+        "Discord player class for sxm-player that will run a Discord bot"
+    ),
     install_requires=requirements["requirements"],
     dependency_links=[
-        "https://github.com/Rapptz/discord.py/tarball/rewrite#egg=discord.py",
-        "https://github.com/AngellusMortis/SiriusXM/tarball/master#egg=sxm",
+        "https://github.com/AngellusMortis/sxm-player/tarball/master#egg=sxm-player"
     ],
     license="MIT license",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
-    keywords="mortis_music",
-    name="mortis_music",
-    packages=find_packages(include=["mortis_music"]),
+    keywords="sxm_discord",
+    name="sxm_discord",
+    packages=find_packages(include=["sxm_discord"]),
     setup_requires=requirements["setup"],
     test_suite="tests",
     tests_require=requirements["dev"],
-    url="https://github.com/AngellusMortis/mortis_music",
+    url="https://github.com/AngellusMortis/sxm-discord",
     version="0.1.0",
     zip_safe=False,
     extras_require={"dev": requirements["dev"]},

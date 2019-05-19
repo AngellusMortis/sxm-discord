@@ -86,7 +86,7 @@ class BotRunner(BaseRunner, PlexCommands, SXMCommands):
 
     async def __before_invoke(self, ctx: Context) -> None:
         if self.state.runners.get("server") is None:
-            raise errors.CommandError("SiriusXM server is not running yet")
+            raise errors.CommandError("SXM server is not running yet")
 
     def __unload(self):
         if self.player is not None:
@@ -269,7 +269,7 @@ class BotRunner(BaseRunner, PlexCommands, SXMCommands):
 
     @command(pass_context=True, no_pm=True, cls=MusicCommand)
     async def skip(self, ctx: Context) -> None:
-        """Skips current song. Does not work for SiriusXM"""
+        """Skips current song. Does not work for SXM"""
 
         if not await is_playing(ctx):
             return
@@ -279,7 +279,7 @@ class BotRunner(BaseRunner, PlexCommands, SXMCommands):
 
         if self.state.active_channel_id is not None:
             await channel.send(
-                f"{author.mention}, cannot skip. " f"SiriusXM radio is playing"
+                f"{author.mention}, cannot skip. " f"SXM radio is playing"
             )
             return
 
@@ -312,7 +312,7 @@ class BotRunner(BaseRunner, PlexCommands, SXMCommands):
     @command(pass_context=True, cls=MusicCommand)
     async def upcoming(self, ctx: Context) -> None:
         """ Displaying the songs/shows on play queue. Does not
-        work for live SiriusXM radio """
+        work for live SXM radio """
 
         if not await is_playing(ctx):
             return

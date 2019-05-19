@@ -1,32 +1,32 @@
-====================
-Discord SiriusXM Bot
-====================
+===========
+sxm-discord
+===========
 
-.. image:: https://readthedocs.org/projects/mortis-music-discord-bot/badge/?version=latest
-        :target: https://mortis-music-discord-bot.readthedocs.io/en/latest/?badge=latest
+.. image:: https://readthedocs.org/projects/sxm-discord/badge/?version=latest
+        :target: https://sxm-discord.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
 
 
-A Discord bot that will play SiriusXM radio stations.
+A Discord bot that will play SXM radio stations.
 
 
 * Free software: MIT license
-* Documentation: https://mortis-music-discord-bot.readthedocs.io.
+* Documentation: https://sxm-discord.readthedocs.io.
 
 
 Features
 --------
 
-* Runs a Discord bot that can play SiriusXM channel
-* Can archive live streams from a channel and process any songs/shows from it
+* Runs a Discord bot that can play SXM channel
 * Can ad-hoc playback any saved archives of songs/shows
-* Can creaste an inifinit random playlist of archived songs
+* Can create an infinite random playlist of archived songs
 
 Credits
 -------
 
-This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypackage`_ project template.
+This package was created with Cookiecutter_ and the
+`audreyr/cookiecutter-pypackage`_ project template.
 
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage

@@ -19,7 +19,7 @@ from sqlalchemy import and_
 from sxm.models import XMChannel
 
 from ...models import Episode, Song, XMState
-from .models import LiveStreamInfo, QueuedItem, SiriusXMActivity
+from .models import LiveStreamInfo, QueuedItem, SXMActivity
 
 __all__ = ["AudioPlayer", "RepeatSetException"]
 
@@ -51,7 +51,7 @@ class AudioPlayer:
     def __init__(self, bot: Bot, xm_state: XMState):
         self._bot = bot
         self._xm_state = xm_state
-        self._log = logging.getLogger("mortis_music.player")
+        self._log = logging.getLogger("sxm_discord.player")
         self._random = SystemRandom()
 
         self.recent = []
@@ -76,11 +76,11 @@ class AudioPlayer:
     def repeat(self, value: bool):
         if self._playlist_channels is not None:
             raise RepeatSetException(
-                "Cannot set repeat while playing a SiriusXM Archive playlist"
+                "Cannot set repeat while playing a SXM Archive playlist"
             )
         if self._live is not None:
             raise RepeatSetException(
-                "Cannot set repeat while playing a SiriusXM live channel"
+                "Cannot set repeat while playing a SXM live channel"
             )
 
         self._do_repeat = value
@@ -351,10 +351,10 @@ class AudioPlayer:
             for line in lines:
                 if "503" in line:
                     self._log.warn(
-                        "Receiving 503 errors from SiriusXM, pausing stream"
+                        "Receiving 503 errors from SXM, pausing stream"
                     )
                     await self._bot.cogs["Music"].bot_output(
-                        f"SiriusXM is having issues, live stream pausing "
+                        f"SXM is having issues, live stream pausing "
                         f"for {ERROR_PAUSE_DELAY} seconds"
                     )
                     await self._reset_live_stream(ERROR_PAUSE_DELAY)
@@ -381,7 +381,7 @@ class AudioPlayer:
                     if self._xm_state.live is not None:
                         self._log.debug("updating SXM activity")
                         self._live.reset_counters()
-                        activity = SiriusXMActivity(
+                        activity = SXMActivity(
                             start=self._xm_state.start_time,
                             radio_time=self._xm_state.radio_time,
                             channel=xm_channel,
@@ -395,7 +395,7 @@ class AudioPlayer:
                         )
                         await self._bot.cogs["Music"].bot_output(
                             "Live stream data has not be received yet, likely "
-                            "due to SiriusXM issue. Resetting live stream..."
+                            "due to SXM issue. Resetting live stream..."
                         )
                         await self._reset_live_stream()
             elif self._voice is not None:
@@ -404,7 +404,7 @@ class AudioPlayer:
                         if not self._live.resetting:
                             self._log.warn(f"live stream lost, resetting")
                             await self._bot.cogs["Music"].bot_output(
-                                "Live stream gone, likely due to SiriusXM "
+                                "Live stream gone, likely due to SXM "
                                 "issues. Resetting live stream..."
                             )
                             await self._reset_live_stream()
