@@ -1,49 +1,93 @@
-from typing import Optional, Union
+import asyncio
+import time
+import datetime
+from typing import List, Optional, Tuple, Union
 
-from discord import Message, TextChannel
+from discord import Message, TextChannel, Activity, Game
 from discord.ext.commands import Bot, Cog, Context, command, errors
+from humanize import naturaltime
 
+from sxm_player.models import PlayerState, Song
+from sxm_player.queue import Event, EventMessage
 from sxm_player.signals import TerminateInterrupt
-from sxm_player.workers import InterruptableWorker
+from sxm_player.workers import (
+    HLSStatusSubscriber,
+    InterruptableWorker,
+    SXMStatusSubscriber,
+)
 
-from .checks import is_playing, require_voice, require_matching_voice
+from .checks import is_playing, require_matching_voice, require_voice
 from .converters import CountConverter, VolumeConverter
-from .models import MusicCommand
+from .models import MusicCommand, SXMActivity
 from .music import AudioPlayer, PlayType
-from .utils import send_message
+from .utils import generate_now_playing_embed, get_recent_songs, send_message
 
 
-class DiscordWorker(InterruptableWorker, Cog, name="Music"):
+class DiscordWorker(
+    InterruptableWorker,
+    HLSStatusSubscriber,
+    SXMStatusSubscriber,
+    Cog,
+    name="Music",
+):
     bot: Bot
-    prefix: str
+    global_prefix: str
+    local_prefix: dict
     token: str
     output_channel: Optional[TextChannel] = None
     player: AudioPlayer
 
     _output_channel_id: Optional[int] = None
+    _last_update: float = 0
+    _update_interval: float = 5
+    _pending_sxm_channel: Optional[str] = None
 
     def __init__(
         self,
         token: str,
-        prefix: str,
+        global_prefix: str,
+        sxm_prefix: str,
         description: str,
         output_channel_id: Optional[int],
+        sxm_status: bool,
+        stream_data: Tuple[Optional[str], Optional[str]] = (None, None),
+        channels: Optional[List[dict]] = None,
+        raw_live_data: Tuple[
+            Optional[float], Optional[float], Optional[dict]
+        ] = (None, None, None),
         *args,
         **kwargs,
     ):
+        sxm_status_queue = kwargs.pop("sxm_status_queue")
+        SXMStatusSubscriber.__init__(self, sxm_status_queue)
+        hls_stream_queue = kwargs.pop("hls_stream_queue")
+        HLSStatusSubscriber.__init__(self, hls_stream_queue)
         super().__init__(*args, **kwargs)
 
-        self.prefix = prefix
+        self._state = PlayerState()
+        self._state.sxm_running = sxm_status
+        self._state.stream_data = stream_data
+        self._state.channels = channels  # type: ignore
+        self._state.set_raw_live(raw_live_data)
+        self._event_queues = [self.sxm_status_queue, self.hls_stream_queue]
+
+        self.global_prefix = global_prefix
+        self.local_prefix = {"sxm": sxm_prefix}
+
         self.token = token
         self.bot = Bot(
-            command_prefix=self.prefix, description=description, pm_help=True
+            command_prefix=self.global_prefix,
+            description=description,
+            pm_help=True,
         )
         self.bot.add_cog(self)
 
-        self.player = AudioPlayer()
+        self.player = AudioPlayer(self.event_queue, self.bot.loop)
 
         if output_channel_id is not None:
             self._output_channel_id = output_channel_id
+
+        self.bot.loop.create_task(self.event_loop())
 
     def run(self):
         self._log.info("Discord bot has started")
@@ -53,7 +97,10 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
             pass
 
     def __unload(self):
+        self.bot.loop.create_task(self.bot_output("Music bot shutting down"))
+
         if self.player is not None:
+            self.player.cleanup()
             self.bot.loop.create_task(self.player.stop())
 
     @Cog.listener()
@@ -74,14 +121,16 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
                 self._log.info(f"output channel: {self.output_channel.id}")
 
         self._log.info(f"logged in as {user} (id: {user.id})")
-        await self.bot_output(f"Accepting `{self.prefix}` commands")
+        await self.bot_output(f"Accepting `{self.global_prefix}` commands")
 
     @Cog.listener()
     async def on_command_error(
         self, ctx: Context, error: errors.CommandError
     ) -> None:
         if isinstance(error, errors.BadArgument):
-            message = f"`{self.prefix}{ctx.command.name}`: {error.args[0]}"
+            message = (
+                f"`{self.global_prefix}{ctx.command.name}`: {error.args[0]}"
+            )
             await send_message(ctx, message)
         elif isinstance(error, errors.CommandNotFound):
             self._log.info(
@@ -105,16 +154,23 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
 
     @Cog.listener()
     async def on_message(self, message: Message) -> None:
+        for command_group, prefix in self.local_prefix.items():
+            if message.content.startswith(prefix.strip()):
+                command = message.content.replace(prefix, "")
+                message.content = (
+                    f"{self.global_prefix}{command_group}{command}"
+                )
+
         ctx = await self.bot.get_context(message)
         author = ctx.message.author
 
-        if message.content.startswith(self.prefix.strip()):
+        if message.content.startswith(self.global_prefix.strip()):
             if isinstance(ctx.message.channel, TextChannel):
                 await ctx.message.delete()
 
         if ctx.valid:
             self._log.info(f"{author}: {message.content}")
-        elif message.content == self.prefix.strip():
+        elif message.content == self.global_prefix.strip():
             await self._invalid_command(ctx)
 
     # helper methods
@@ -123,12 +179,106 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
             await send_message(self.output_channel, message)
 
     async def _invalid_command(self, ctx: Context, group: str = ""):
-        help_command = f"{self.prefix}help {group}".strip()
+        help_command = f"{self.global_prefix}help {group}".strip()
         message = (
             f"`{ctx.message.content}`: invalid command. "
             f"Use `{help_command}` for a list of commands"
         )
         await send_message(ctx, message)
+
+    async def event_loop(self):
+        while not self.shutdown_event.is_set():
+            was_connected = self._state.sxm_running
+
+            for queue in self._event_queues:
+                event = queue.safe_get()
+
+                if event:
+                    self._log.debug(
+                        f"Received event: {event.msg_src}, "
+                        f"{event.msg_type.name}"
+                    )
+                    await self._handle_event(event)
+
+            if self._state.sxm_running and not was_connected:
+                await self.bot_output(
+                    "SXM now available for streaming. "
+                    f"{len(self._state.channels)} channels available"
+                )
+                if self._pending_sxm_channel is not None:
+                    await self.bot_output(
+                        "Automatically resuming previous channel: "
+                        f"`{self._pending_sxm_channel}`"
+                    )
+                    # self.player.play
+                    self._pending_sxm_channel = None
+            elif not self._state.sxm_running and was_connected:
+                await self.bot_output(
+                    "Connection to SXM was lost. Will automatically reconnect"
+                )
+                if (
+                    self.player.is_playing
+                    and self.player.play_type == PlayType.LIVE
+                ):
+                    self._pending_sxm_channel = self.player.current.live[0]
+                    self.player.stop(False)
+
+            if time.time() > (self._last_update + self._update_interval):
+                await self.update()
+                self._last_update = time.time()
+
+            await asyncio.sleep(0.1)
+
+    async def update(self):
+        activity: Optional[Activity] = None
+        if self.player.is_playing:
+            if self.player.play_type == PlayType.LIVE:
+                if self._state.live is not None:
+                    xm_channel = self._state.get_channel(
+                        self._state.stream_channel
+                    )
+                    activity = SXMActivity(
+                        start=self._state.start_time,
+                        radio_time=self._state.radio_time,
+                        channel=xm_channel,
+                        live_channel=self._state.live,
+                    )
+            else:
+                activity = Game(
+                    name=self.player.current.audio_file.pretty_name
+                )
+
+            await self.bot.change_presence(activity=activity)
+
+    async def _handle_event(self, event: EventMessage):
+        if event.msg_type == Event.SXM_STATUS:
+            self._state.sxm_running = event.msg
+        elif event.msg_type == Event.HLS_STREAM_STARTED:
+            self._state.stream_data = event.msg
+
+            if (
+                self.player.play_type == PlayType.LIVE
+                or self.player.play_type is None
+            ):
+
+                if self.player.play_type == PlayType.LIVE:
+                    await self.player.stop(False)
+
+                await self.player.add_live_stream(
+                    self._state.get_channel(event.msg[0]), event.msg[1]
+                )
+            else:
+                self._log.debug("Ignoring new HLS stream")
+        elif event.msg_type == Event.UPDATE_METADATA:
+            self._state.set_raw_live(event.msg)
+        elif event.msg_type == Event.UPDATE_CHANNELS:
+            self._state.channels = event.msg
+        elif event.msg_type == Event.KILL_HLS_STREAM:
+            await self.player.stop()
+        else:
+            self._log.warning(
+                f"Unknown event received: {event.msg_src}, {event.msg_type}"
+            )
 
     @command(pass_context=True, cls=MusicCommand)
     async def playing(self, ctx: Context) -> None:
@@ -137,9 +287,16 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
         if not await is_playing(ctx):
             return
 
-        if self.player.play_type == PlayType.HLS:
-            # TODO
-            pass
+        if self.player.play_type == PlayType.LIVE:
+            if self._state.stream_channel is None or self.player.voice is None:
+                return
+
+            xm_channel, embed = generate_now_playing_embed(self._state)
+            message = (
+                f"currently playing **{xm_channel.pretty_name}** on "
+                f"**{self.player.voice.channel.mention}**"
+            )
+            await send_message(ctx, message, embed=embed)
         else:
             name = self.player.current.audio_file.bold_name  # type: ignore
             channel = self.player.voice.channel  # type: ignore
@@ -158,9 +315,34 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
         if not await is_playing(ctx):
             return
 
-        if self.player.play_type == PlayType.HLS:
-            # TODO
-            pass
+        if self.player.play_type == PlayType.LIVE:
+            if self._state.stream_channel is None or self.player.voice is None:
+                return
+
+            xm_channel, song_cuts, latest_cut = get_recent_songs(
+                self._state, count
+            )
+            now = self._state.radio_time
+
+            if len(song_cuts) > 0:
+                message = f"Recent songs for **{xm_channel.pretty_name}**:\n\n"
+
+                for song_cut in song_cuts:
+                    seconds_ago = int((now - song_cut.time) / 1000)
+                    time_delta = datetime.timedelta(seconds=seconds_ago)
+                    time_string = naturaltime(time_delta)
+
+                    pretty_name = Song.get_pretty_name(
+                        song_cut.cut.title, song_cut.cut.artists[0].name, True
+                    )
+                    if song_cut == latest_cut:
+                        message += f"now: {pretty_name}\n"
+                    else:
+                        message += f"about {time_string}: {pretty_name}\n"
+
+                await send_message(ctx, message, sep="\n\n")
+            else:
+                await send_message(ctx, "no recent songs played")
         else:
             message = f"Recent songs/shows:\n\n"
 
@@ -178,7 +360,7 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
     async def repeat(
         self, ctx: Context, do_repeat: Union[bool, None] = None
     ) -> None:
-        """Sets/Unsets play queue to repeat infinitely"""
+        """Set/Unset play queue to repeat infinitely"""
 
         if not await is_playing(ctx):
             return
@@ -186,7 +368,7 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
         if do_repeat is None:
             status = "on" if self.player.repeat else "off"
             await send_message(ctx, f"repeat is currently {status}")
-        elif self.player.play_type == PlayType.HLS:
+        elif self.player.play_type == PlayType.LIVE:
             await send_message(
                 ctx, "Cannot change repeat while playing a SXM live channel"
             )
@@ -200,13 +382,16 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
 
     @command(pass_context=True, no_pm=True, cls=MusicCommand)
     async def reset(self, ctx: Context) -> None:
-        """Forces bot to leave voice"""
+        """Forces bot to leave voice and hard resets audio player"""
 
         if not await require_voice(ctx):
             return
 
         await ctx.invoke(self.summon)
         await self.player.stop()
+        await self.player.cleanup()
+
+        self.player = AudioPlayer(self.event_queue, self.bot.loop)
 
     @command(pass_context=True, no_pm=True, cls=MusicCommand)
     async def skip(self, ctx: Context) -> None:
@@ -218,7 +403,7 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
         channel = ctx.message.channel
         author = ctx.message.author
 
-        if self.player.play_type == PlayType.HLS:
+        if self.player.play_type == PlayType.LIVE:
             await channel.send(
                 f"{author.mention}, cannot skip. SXM radio is playing"
             )
@@ -258,7 +443,7 @@ class DiscordWorker(InterruptableWorker, Cog, name="Music"):
         if not await is_playing(ctx):
             return
 
-        if self.player.play_type == PlayType.HLS:
+        if self.player.play_type == PlayType.LIVE:
             await send_message(ctx, "live radio playing, cannot get upcoming")
         else:
             message = f"Upcoming songs/shows:\n\n"

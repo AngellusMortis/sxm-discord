@@ -14,10 +14,16 @@ class DiscordPlayer(BasePlayer):
     params = [
         Option("--token", required=True, type=str, help="Discord bot token"),
         Option(
-            "--prefix",
+            "--global-prefix",
             type=str,
             default="/music ",
-            help="Discord bot command prefix",
+            help="Main Discord bot command prefix",
+        ),
+        Option(
+            "--sxm-prefix",
+            type=str,
+            default="/sxm ",
+            help="SXM Discord bot command prefix (short for `/music sxm `)",
         ),
         Option(
             "--description",
@@ -44,9 +50,14 @@ class DiscordPlayer(BasePlayer):
         context = click.get_current_context()
         params = {
             "token": context.params["token"],
-            "prefix": context.params["prefix"],
+            "global_prefix": context.params["global_prefix"],
+            "sxm_prefix": context.params["sxm_prefix"],
             "description": context.params["description"],
             "output_channel_id": context.params["output_channel_id"],
+            "sxm_status": state.sxm_running,
+            "stream_data": state.stream_data,
+            "channels": state.get_raw_channels(),
+            "raw_live_data": state.get_raw_live(),
         }
 
         return (DiscordWorker, "discord", params)
