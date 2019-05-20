@@ -44,9 +44,6 @@ setup(
         "Discord player class for sxm-player that will run a Discord bot"
     ),
     install_requires=requirements["requirements"],
-    dependency_links=[
-        "https://github.com/AngellusMortis/sxm-player/tarball/master#egg=sxm"
-    ],
     license="MIT license",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
