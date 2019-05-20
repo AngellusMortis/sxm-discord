@@ -2,7 +2,7 @@ from typing import Tuple, List, Optional
 from discord import DMChannel, Embed, TextChannel
 from discord.ext.commands import errors
 
-from sxm.models import XMSong, XMImage, XMChannel, XMCut
+from sxm.models import XMSong, XMImage, XMChannel, XMCut, XMArt
 from sxm_player.models import PlayerState
 
 __all__ = ["send_message"]
@@ -49,29 +49,14 @@ def generate_now_playing_embed(state: PlayerState) -> Tuple[XMChannel, Embed]:
             if album.title is not None:
                 np_album = album.title
 
-            for art in album.arts:
-                if isinstance(art, XMImage):
-                    if art.size is not None and art.size == "MEDIUM":
-                        np_thumbnail = art.url
+            np_thumbnail = get_art_url_by_size(album.arts, "MEDIUM")
 
     if episode is not None:
         episode = episode.episode
         np_episode_title = episode.long_title
 
         if np_thumbnail is None:
-            for art in episode.show.arts:
-                if (
-                    art.height > 100
-                    and art.height < 200
-                    and art.height == art.width
-                ):
-                    # logo on dark is what we really want
-                    if art.name == "show logo on dark":
-                        np_thumbnail = art.url
-                        break
-                    # but it is not always there, so fallback image
-                    elif art.name == "image":
-                        np_thumbnail = art.url
+            np_thumbnail = get_art_thumb_url(episode.show.arts)
 
     embed = Embed(title=np_title)
     if np_author is not None:
@@ -105,13 +90,41 @@ def get_recent_songs(
             continue
 
         end = int(song_cut.time + song_cut.duration)
-        if state.start_time is not None:
-            if song_cut.time < now and (
-                end > state.start_time or song_cut.time > state.start_time
-            ):
-                song_cuts.append(song_cut)
+        if (
+            state.start_time is not None
+            and song_cut.time < now
+            and (end > state.start_time or song_cut.time > state.start_time)
+        ):
+            song_cuts.append(song_cut)
 
         if len(song_cuts) >= count:
             break
 
     return xm_channel, song_cuts, latest_cut
+
+
+def get_art_url_by_size(arts: List[XMArt], size: str) -> Optional[str]:
+    for art in arts:
+        if (
+            isinstance(art, XMImage)
+            and art.size is not None
+            and art.size == size
+        ):
+            return art
+    return None
+
+
+def get_art_thumb_url(arts: List[XMArt]) -> Optional[str]:
+    thumb: Optional[str] = None
+
+    for art in arts:
+        if art.height > 100 and art.height < 200 and art.height == art.width:
+            # logo on dark is what we really want
+            if art.name == "show logo on dark":
+                thumb = art.url
+                break
+            # but it is not always there, so fallback image
+            elif art.name == "image":
+                thumb = art.url
+
+    return thumb

@@ -1,10 +1,13 @@
 from dataclasses import dataclass
-from typing import Union, Optional, Tuple
+from typing import Optional, Tuple, Union
+
 from discord import AudioSource, Game
-from sxm_player.models import Song, Episode
 from discord.ext.commands import Command, Group
 
-from sxm.models import XMChannel, XMLiveChannel, XMSong, XMImage
+from sxm.models import XMChannel, XMLiveChannel, XMSong
+from sxm_player.models import Episode, Song
+
+from .utils import get_art_url_by_size
 
 
 @dataclass
@@ -86,7 +89,6 @@ class SXMActivity(Game):
                         f"{album.title} by {song.artists[0].name}"
                     )
 
-                for art in album.arts:
-                    if isinstance(art, XMImage):
-                        if art.size is not None and art.size == "MEDIUM":
-                            self.large_image_url = art.url
+                self.large_image_url = get_art_url_by_size(
+                    album.arts, "MEDIUM"
+                )
