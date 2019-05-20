@@ -33,7 +33,7 @@ setup(
     author_email="cbailey@mort.is",
     classifiers=[
         "Development Status :: 3 - Alpha",
-        "Intended Audience :: Developers",
+        "Intended Audience :: End Users/Desktop",
         "License :: OSI Approved :: MIT License",
         "Natural Language :: English",
         "Programming Language :: Python :: 3",
@@ -47,7 +47,7 @@ setup(
     license="MIT license",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
-    keywords="sxm_discord",
+    keywords="sxm,SiriusXM,XM Radio,Discord",
     name="sxm_discord",
     packages=find_packages(include=["sxm_discord"]),
     setup_requires=requirements["setup"],
