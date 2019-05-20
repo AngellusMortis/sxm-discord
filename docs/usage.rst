@@ -6,9 +6,10 @@ Command Line Interface
 ======================
 
 `sxm-discord` is a Player Class for `sxm-player`_. Please be sure to
-fimilarize yourself with the CLI interfce for that project first.
+fimilarize yourself with the `CLI interface`_ for that project first.
 
 .. _sxm-player: https://github.com/AngellusMortis/sxm-player
+.. _CLI interface: https://sxm-player.readthedocs.io/en/latest/usage.html
 
 Basic Bot
 ---------
