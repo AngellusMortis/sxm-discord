@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional, Tuple, Type
 
 import click
@@ -48,12 +49,19 @@ class DiscordPlayer(BasePlayer):
     ) -> Optional[Tuple[Type[BaseWorker], str, dict]]:
 
         context = click.get_current_context()
+        processed_folder: Optional[str] = None
+        # if "output_folder" in kwargs and kwargs["output_folder"] is not None:
+        #     processed_folder = os.path.join(
+        #         kwargs["output_folder"], "processed"
+        #     )
+
         params = {
             "token": context.params["token"],
             "global_prefix": context.params["global_prefix"],
             "sxm_prefix": context.params["sxm_prefix"],
             "description": context.params["description"],
             "output_channel_id": context.params["output_channel_id"],
+            "processed_folder": processed_folder,
             "sxm_status": state.sxm_running,
             "stream_data": state.stream_data,
             "channels": state.get_raw_channels(),

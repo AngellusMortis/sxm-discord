@@ -1,23 +1,19 @@
 import asyncio
-import datetime
 import logging
 import os
 import traceback
 from typing import Optional, Union
 
-from discord import Embed
 from discord.ext.commands import Context, command
-from humanize import naturaltime
 from sqlalchemy import or_
 from tabulate import tabulate
 
-from sxm.models import XMImage, XMSong
+from sxm_player.models import Episode, PlayerState, Song
 
-from ...models import Episode, Song, XMState
-from .checks import require_voice
+from .checks import require_voice, require_sxm
 from .converters import XMChannelConverter, XMChannelListConverter
 from .models import MusicPlayerGroup, SXMCommand
-from .player import AudioPlayer
+from .music import AudioPlayer
 from .utils import send_message
 
 
@@ -25,7 +21,7 @@ class SXMCommands:
     _log: logging.Logger
 
     player: AudioPlayer
-    state: XMState
+    _state: PlayerState
 
     async def _invalid_command(self, ctx: Context, group: str = "") -> None:
         raise NotImplementedError()
@@ -33,7 +29,7 @@ class SXMCommands:
     async def _play_archive_file(
         self, ctx: Context, guid: str = None, is_song: bool = False
     ) -> None:
-        """ Quues a song/show file from SXM archive to be played"""
+        """ Queues a song/show file from SXM archive to be played"""
 
         channel = ctx.message.channel
         author = ctx.message.author
@@ -41,10 +37,7 @@ class SXMCommands:
         if is_song:
             search_type = "songs"
 
-        if author.voice is None:
-            await channel.send(
-                f"{author.mention}, you are not in a voice channel."
-            )
+        if not await require_voice(ctx):
             return
 
         if guid is None:
@@ -54,14 +47,14 @@ class SXMCommands:
             return
 
         db_item = None
-        if self.state.db is not None:
+        if self._state.db is not None:
             if is_song:
                 db_item = (
-                    self.state.db.query(Song).filter_by(guid=guid).first()
+                    self._state.db.query(Song).filter_by(guid=guid).first()
                 )
             else:
                 db_item = (
-                    self.state.db.query(Episode).filter_by(guid=guid).first()
+                    self._state.db.query(Episode).filter_by(guid=guid).first()
                 )
 
         if db_item is not None and not os.path.exists(db_item.file_path):
@@ -91,7 +84,7 @@ class SXMCommands:
         items = None
         if is_song:
             items = (
-                self.state.db.query(Song)  # type: ignore
+                self._state.db.query(Song)  # type: ignore
                 .filter(
                     or_(
                         Song.guid.ilike(f"{search}%"),  # type: ignore
@@ -103,7 +96,7 @@ class SXMCommands:
             )
         else:
             items = (
-                self.state.db.query(Episode)  # type: ignore
+                self._state.db.query(Episode)  # type: ignore
                 .filter(
                     or_(
                         Episode.guid.ilike(f"{search}%"),  # type: ignore
@@ -124,127 +117,6 @@ class SXMCommands:
                 ctx, f"no {search_type} results found for `{search}`"
             )
 
-    async def _sxm_now_playing(self, ctx: Context) -> None:
-        """ Sends message for what is currently playing on the
-        SXM HLS live stream """
-
-        xm_channel = self.state.get_channel(self.state.active_channel_id)
-
-        if xm_channel is None or self.player.voice is None:
-            return
-
-        if self.state.live is not None:
-            cut = self.state.live.get_latest_cut(now=self.state.radio_time)
-            episode = self.state.live.get_latest_episode(
-                now=self.state.radio_time
-            )
-
-        np_title = None
-        np_author = None
-        np_thumbnail = None
-        np_album = None
-        np_episode_title = None
-
-        if cut is not None and isinstance(cut.cut, XMSong):
-            song = cut.cut
-            np_title = song.title
-            np_author = song.artists[0].name
-
-            if song.album is not None:
-                album = song.album
-                if album.title is not None:
-                    np_album = album.title
-
-                for art in album.arts:
-                    if isinstance(art, XMImage):
-                        if art.size is not None and art.size == "MEDIUM":
-                            np_thumbnail = art.url
-
-        if episode is not None:
-            episode = episode.episode
-            np_episode_title = episode.long_title
-
-            if np_thumbnail is None:
-                for art in episode.show.arts:
-                    if (
-                        art.height > 100
-                        and art.height < 200
-                        and art.height == art.width
-                    ):
-                        # logo on dark is what we really want
-                        if art.name == "show logo on dark":
-                            np_thumbnail = art.url
-                            break
-                        # but it is not always there, so fallback image
-                        elif art.name == "image":
-                            np_thumbnail = art.url
-
-        embed = Embed(title=np_title)
-        if np_author is not None:
-            embed.set_author(name=np_author)
-        if np_thumbnail is not None:
-            embed.set_thumbnail(url=np_thumbnail)
-        if np_album is not None:
-            embed.add_field(name="Album", value=np_album)
-        embed.add_field(name="SXM", value=xm_channel.pretty_name, inline=True)
-        if np_episode_title is not None:
-            embed.add_field(name="Show", value=np_episode_title, inline=True)
-
-        message = (
-            f"currently playing **{xm_channel.pretty_name}** on "
-            f"**{self.player.voice.channel.mention}**"
-        )
-        await send_message(ctx, message, embed=embed)
-
-    async def _sxm_recent(self, ctx: Context, count: int) -> None:
-        """ Respons with what has recently played on the
-        SXM HLS live stream """
-
-        xm_channel = self.state.get_channel(self.state.active_channel_id)
-
-        if self.state.live is None or xm_channel is None:
-            return
-
-        song_cuts = []
-        now = self.state.radio_time
-        latest_cut = self.state.live.get_latest_cut(now)
-
-        for song_cut in reversed(self.state.live.song_cuts):
-            if song_cut == latest_cut:
-                song_cuts.append(song_cut)
-                continue
-
-            end = int(song_cut.time + song_cut.duration)
-            if self.state.start_time is not None:
-                if song_cut.time < now and (
-                    end > self.state.start_time
-                    or song_cut.time > self.state.start_time
-                ):
-                    song_cuts.append(song_cut)
-
-            if len(song_cuts) >= count:
-                break
-
-        if len(song_cuts) > 0:
-            message = f"Recent songs for **{xm_channel.pretty_name}**:\n\n"
-
-            for song_cut in song_cuts:
-                seconds_ago = int((now - song_cut.time) / 1000)
-                time_delta = datetime.timedelta(seconds=seconds_ago)
-                time_string = naturaltime(time_delta)
-
-                pretty_name = Song.get_pretty_name(
-                    song_cut.cut.title, song_cut.cut.artists[0].name, True
-                )
-                if song_cut == latest_cut:
-                    message += f"now: {pretty_name}\n"
-                else:
-                    message += f"about {time_string}: {pretty_name}\n"
-
-            await send_message(ctx, message, sep="\n\n")
-        else:
-            await send_message(ctx, "no recent songs played")
-
     async def summon(self, ctx: Context) -> None:
         raise NotImplementedError()
 
@@ -260,7 +132,7 @@ class SXMCommands:
     ) -> None:
         """Plays a specific SXM channel"""
 
-        if not await require_voice(ctx):
+        if not await require_voice(ctx) or not await require_sxm(ctx):
             return
 
         channel = ctx.message.channel
@@ -272,12 +144,8 @@ class SXMCommands:
         else:
             await ctx.invoke(self.summon)
 
-        log_archive = ""
-        if self.state.stream_folder is not None:
-            log_archive = f": archiving"
-
         try:
-            self._log.info(f"play{log_archive}: {xm_channel.id}")
+            self._log.info(f"play: {xm_channel.id}")
             await self.player.add_live_stream(xm_channel)
         except Exception:
             self._log.error("error while trying to add channel to play queue:")
@@ -297,10 +165,13 @@ class SXMCommands:
     async def sxm_channels(self, ctx: Context) -> None:
         """Bot will PM with list of possible SXM channel"""
 
+        if not await require_sxm(ctx):
+            return
+
         author = ctx.message.author
 
         display_channels = []
-        for channel in self.state.channels:
+        for channel in self._state.channels:
             display_channels.append(
                 [
                     channel.id,
@@ -345,11 +216,11 @@ class SXMCommands:
         if not await require_voice(ctx):
             return
 
-        if self.state.db is None:
+        if self._state.db is None:
             return
 
         channel_ids = [x.id for x in xm_channels]
-        unique_songs = self.state.db.query(Song.title, Song.artist).filter(
+        unique_songs = self._state.db.query(Song.title, Song.artist).filter(
             Song.channel.in_(channel_ids)  # type: ignore
         )
         unique_songs = unique_songs.distinct().all()
@@ -367,7 +238,7 @@ class SXMCommands:
             await ctx.invoke(self.summon)
 
         try:
-            await self.player.add_playlist(xm_channels)
+            await self.player.add_playlist(xm_channels, self._state.db)
         except Exception:
             self._log.error("error while trying to create playlist:")
             self._log.error(traceback.format_exc())

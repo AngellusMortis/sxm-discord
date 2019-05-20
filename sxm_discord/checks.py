@@ -47,6 +47,15 @@ async def require_player_voice(ctx):
     return True
 
 
+async def require_sxm(ctx):
+    if ctx.cog._state.sxm_running:
+        return True
+    await send_message(
+        ctx, (f"`{ctx.message.content}`: SXM client is offline")
+    )
+    return False
+
+
 async def require_matching_voice(ctx):
     if not await require_voice(ctx):
         return False

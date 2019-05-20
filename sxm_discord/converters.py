@@ -8,7 +8,7 @@ from sxm.models import XMChannel
 
 class XMChannelConverter(Converter):
     async def convert(self, ctx, channel_id: str) -> XMChannel:
-        channel = ctx.cog.state.get_channel(channel_id)
+        channel = ctx.cog._state.get_channel(channel_id)
 
         if channel is None:
             raise BadArgument(

@@ -1,13 +1,15 @@
 import asyncio
-import time
 import datetime
+import time
+import traceback
 from typing import List, Optional, Tuple, Union
 
-from discord import Message, TextChannel, Activity, Game
+from discord import Activity, Game, Message, TextChannel, VoiceChannel
 from discord.ext.commands import Bot, Cog, Context, command, errors
 from humanize import naturaltime
 
-from sxm_player.models import PlayerState, Song
+from sxm.models import XMChannel
+from sxm_player.models import Episode, PlayerState, Song
 from sxm_player.queue import Event, EventMessage
 from sxm_player.signals import TerminateInterrupt
 from sxm_player.workers import (
@@ -20,6 +22,7 @@ from .checks import is_playing, require_matching_voice, require_voice
 from .converters import CountConverter, VolumeConverter
 from .models import MusicCommand, SXMActivity
 from .music import AudioPlayer, PlayType
+from .sxm import SXMCommands
 from .utils import generate_now_playing_embed, get_recent_songs, send_message
 
 
@@ -27,6 +30,7 @@ class DiscordWorker(
     InterruptableWorker,
     HLSStatusSubscriber,
     SXMStatusSubscriber,
+    SXMCommands,
     Cog,
     name="Music",
 ):
@@ -40,7 +44,7 @@ class DiscordWorker(
     _output_channel_id: Optional[int] = None
     _last_update: float = 0
     _update_interval: float = 5
-    _pending_sxm_channel: Optional[str] = None
+    _pending: Optional[Tuple[XMChannel, VoiceChannel]] = None
 
     def __init__(
         self,
@@ -49,6 +53,7 @@ class DiscordWorker(
         sxm_prefix: str,
         description: str,
         output_channel_id: Optional[int],
+        processed_folder: str,
         sxm_status: bool,
         stream_data: Tuple[Optional[str], Optional[str]] = (None, None),
         channels: Optional[List[dict]] = None,
@@ -67,6 +72,7 @@ class DiscordWorker(
         self._state = PlayerState()
         self._state.sxm_running = sxm_status
         self._state.stream_data = stream_data
+        self._state.processed_folder = processed_folder
         self._state.channels = channels  # type: ignore
         self._state.set_raw_live(raw_live_data)
         self._event_queues = [self.sxm_status_queue, self.hls_stream_queue]
@@ -82,6 +88,18 @@ class DiscordWorker(
         )
         self.bot.add_cog(self)
 
+        # commands that depend on SQLite DB
+        if self._state.processed_folder is None:
+            self.bot.remove_command("skip")
+            self.bot.remove_command("upcoming")
+
+            sxm = self.bot.get_command("sxm")
+            sxm.remove_command("song")
+            sxm.remove_command("songs")
+            sxm.remove_command("show")
+            sxm.remove_command("shows")
+            sxm.remove_command("playlist")
+
         self.player = AudioPlayer(self.event_queue, self.bot.loop)
 
         if output_channel_id is not None:
@@ -93,7 +111,7 @@ class DiscordWorker(
         self._log.info("Discord bot has started")
         try:
             self.bot.run(self.token)
-        except (KeyboardInterrupt, TerminateInterrupt):
+        except (KeyboardInterrupt, TerminateInterrupt, RuntimeError):
             pass
 
     def __unload(self):
@@ -152,15 +170,19 @@ class DiscordWorker(
             self._log.error(f"{type(error)}: {error}")
             await send_message(ctx, "something went wrong ☹")
 
+    # @Cog.listener()
+    # async def on_socket_raw_receive(
+    #     self, message: Union[str, bytes]
+    # ) -> Union[str, bytes]:
+    #     for command_group, prefix in self.local_prefix.items():
+    #         if message.startswith(prefix.strip()):
+    #             command = message.replace(prefix, "")
+    #             message = f"{self.global_prefix}{command_group} {command}"
+
+    #     return message
+
     @Cog.listener()
     async def on_message(self, message: Message) -> None:
-        for command_group, prefix in self.local_prefix.items():
-            if message.content.startswith(prefix.strip()):
-                command = message.content.replace(prefix, "")
-                message.content = (
-                    f"{self.global_prefix}{command_group}{command}"
-                )
-
         ctx = await self.bot.get_context(message)
         author = ctx.message.author
 
@@ -205,13 +227,14 @@ class DiscordWorker(
                     "SXM now available for streaming. "
                     f"{len(self._state.channels)} channels available"
                 )
-                if self._pending_sxm_channel is not None:
+                if self._pending is not None:
                     await self.bot_output(
                         "Automatically resuming previous channel: "
-                        f"`{self._pending_sxm_channel}`"
+                        f"`{self._pending[0].id}`"
                     )
-                    # self.player.play
-                    self._pending_sxm_channel = None
+                    await self.player.set_voice(self._pending[1])
+                    await self.player.add_live_stream(self._pending[0])
+                    self._pending = None
             elif not self._state.sxm_running and was_connected:
                 await self.bot_output(
                     "Connection to SXM was lost. Will automatically reconnect"
@@ -220,8 +243,9 @@ class DiscordWorker(
                     self.player.is_playing
                     and self.player.play_type == PlayType.LIVE
                 ):
-                    self._pending_sxm_channel = self.player.current.live[0]
-                    self.player.stop(False)
+                    xm_channel = self.player.current.stream_data[0]
+                    self._pending = (xm_channel, self.player.voice.channel)
+                    await self.player.stop(False)
 
             if time.time() > (self._last_update + self._update_interval):
                 await self.update()
@@ -248,7 +272,10 @@ class DiscordWorker(
                     name=self.player.current.audio_file.pretty_name
                 )
 
+        try:
             await self.bot.change_presence(activity=activity)
+        except AttributeError:
+            pass
 
     async def _handle_event(self, event: EventMessage):
         if event.msg_type == Event.SXM_STATUS:
@@ -279,6 +306,30 @@ class DiscordWorker(
             self._log.warning(
                 f"Unknown event received: {event.msg_src}, {event.msg_type}"
             )
+
+    async def _play_file(
+        self, ctx: Context, item: Union[Song, Episode], message: bool = True
+    ) -> None:
+        """ Queues a file to be played """
+
+        if self.player.is_playing:
+            if self.player.play_type != PlayType.FILE:
+                await self.player.stop(disconnect=False)
+                await asyncio.sleep(0.5)
+        else:
+            await ctx.invoke(self.summon)
+
+        try:
+            self._log.info(f"play: {item.file_path}")
+            await self.player.add_file(item)
+        except Exception:
+            self._log.error("error while trying to add file to play queue:")
+            self._log.error(traceback.format_exc())
+        else:
+            if message:
+                await send_message(
+                    ctx, f"added {item.bold_name} to now playing queue"
+                )
 
     @command(pass_context=True, cls=MusicCommand)
     async def playing(self, ctx: Context) -> None:
