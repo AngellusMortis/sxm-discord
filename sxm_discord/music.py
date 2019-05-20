@@ -267,9 +267,7 @@ class AudioPlayer:
         songs = (
             self._playlist_data[1]
             .query(Song.title, Song.artist)
-            .filter(
-                Song.channel.in_(channel_ids)  # type: ignore
-            )
+            .filter(Song.channel.in_(channel_ids))  # type: ignore
         )
         songs = songs.distinct().all()
 
