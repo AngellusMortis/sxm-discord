@@ -87,7 +87,8 @@ Retrieves what the bot is currently playing.
 
     $ /sxm playing
 
-Prints a list of the most recent songs played. Defaults to top 3, can display up to 10.
+Prints a list of the most recent songs played. Defaults to top 3, can display
+up to 10.
 
 .. code-block:: console
 

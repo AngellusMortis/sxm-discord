@@ -45,7 +45,7 @@ setup(
     ),
     install_requires=requirements["requirements"],
     dependency_links=[
-        "https://github.com/AngellusMortis/sxm-player/tarball/master#egg=sxm-player"
+        "https://github.com/AngellusMortis/sxm-player/tarball/master#egg=sxm"
     ],
     license="MIT license",
     long_description=readme + "\n\n" + history,
