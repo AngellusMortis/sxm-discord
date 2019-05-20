@@ -6,14 +6,14 @@ sxm-discord
         :target: https://sxm-discord.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-
-
-A Discord bot that will play SXM radio stations.
+A Discord bot that will play SXM radio stations. `sxm-discord` is a player
+class for `sxm-player`_.
 
 
 * Free software: MIT license
 * Documentation: https://sxm-discord.readthedocs.io.
 
+.. _sxm-player: https://github.com/AngellusMortis/sxm-player
 
 Features
 --------
