@@ -2,12 +2,14 @@ import asyncio
 import logging
 import os
 import traceback
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
+from discord import VoiceChannel
 from discord.ext.commands import Context, command
 from sqlalchemy import or_
 from tabulate import tabulate
 
+from sxm.models import XMChannel
 from sxm_player.models import Episode, PlayerState, Song
 
 from .checks import require_voice, require_sxm
@@ -22,6 +24,7 @@ class SXMCommands:
 
     player: AudioPlayer
     _state: PlayerState
+    _pending: Optional[Tuple[XMChannel, VoiceChannel]] = None
 
     async def _invalid_command(self, ctx: Context, group: str = "") -> None:
         raise NotImplementedError()
@@ -139,6 +142,7 @@ class SXMCommands:
         author = ctx.message.author
 
         if self.player.is_playing:
+            self._pending = None
             await self.player.stop(disconnect=False)
             await asyncio.sleep(0.5)
         else:
@@ -155,11 +159,13 @@ class SXMCommands:
                 f"{author.mention}, something went wrong starting stream"
             )
         else:
-            await channel.send(
-                f"{author.mention} starting playing "
-                f"**{xm_channel.pretty_name}** in "
-                f"**{author.voice.channel.mention}**"
-            )
+            if self.player.voice is not None:
+                self._pending = (xm_channel, self.player.voice.channel)
+                await channel.send(
+                    f"{author.mention} starting playing "
+                    f"**{xm_channel.pretty_name}** in "
+                    f"**{author.voice.channel.mention}**"
+                )
 
     @sxm.command(name="channels", pass_context=True, cls=SXMCommand)
     async def sxm_channels(self, ctx: Context) -> None:
@@ -175,12 +181,13 @@ class SXMCommands:
             display_channels.append(
                 [
                     channel.id,
-                    channel.channel_number,
+                    int(channel.channel_number),
                     channel.name,
                     channel.short_description,
                 ]
             )
 
+        display_channels = sorted(display_channels, key=lambda l: l[1])
         channel_table = tabulate(
             display_channels, headers=["ID", "#", "Name", "Description"]
         )

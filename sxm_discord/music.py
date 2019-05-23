@@ -110,7 +110,7 @@ class AudioPlayer:
         if self._current is not None:
             self._current.source.volume = self._volume
 
-    async def stop(self, disconnect=True):
+    async def stop(self, disconnect=True, kill_hls=True):
         """ Stops the `AudioPlayer` """
 
         self._log.debug(f"player stop: {disconnect}")
@@ -135,15 +135,15 @@ class AudioPlayer:
                 self._voice.stop()
 
             if disconnect:
-                # clean up any existing HLS stream
-                if self.play_type == PlayType.LIVE:
-                    self._event_queue.safe_put(
-                        EventMessage("discord", Event.KILL_HLS_STREAM, None)
-                    )
-
                 # reset voice
                 await self._voice.disconnect()
                 self._voice = None
+
+                # clean up any existing HLS stream
+                if self.play_type == PlayType.LIVE and kill_hls:
+                    self._event_queue.safe_put(
+                        EventMessage("discord", Event.KILL_HLS_STREAM, None)
+                    )
 
         self.play_type = None
 

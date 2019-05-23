@@ -141,6 +141,9 @@ class DiscordWorker(
         self._log.info(f"logged in as {user} (id: {user.id})")
         await self.bot_output(f"Accepting `{self.global_prefix}` commands")
 
+        if self._state.sxm_running:
+            await self._sxm_running_message()
+
     @Cog.listener()
     async def on_command_error(
         self, ctx: Context, error: errors.CommandError
@@ -208,6 +211,12 @@ class DiscordWorker(
         )
         await send_message(ctx, message)
 
+    async def _sxm_running_message(self):
+        await self.bot_output(
+            "SXM now available for streaming. "
+            f"{len(self._state.channels)} channels available"
+        )
+
     async def event_loop(self):
         while not self.shutdown_event.is_set():
             was_connected = self._state.sxm_running
@@ -223,18 +232,13 @@ class DiscordWorker(
                     await self._handle_event(event)
 
             if self._state.sxm_running and not was_connected:
-                await self.bot_output(
-                    "SXM now available for streaming. "
-                    f"{len(self._state.channels)} channels available"
-                )
+                await self._sxm_running_message()
                 if self._pending is not None:
                     await self.bot_output(
                         "Automatically resuming previous channel: "
                         f"`{self._pending[0].id}`"
                     )
-                    await self.player.set_voice(self._pending[1])
-                    await self.player.add_live_stream(self._pending[0])
-                    self._pending = None
+                    await self._reset_live(self._pending[1], self._pending[0])
             elif not self._state.sxm_running and was_connected:
                 await self.bot_output(
                     "Connection to SXM was lost. Will automatically reconnect"
@@ -243,9 +247,7 @@ class DiscordWorker(
                     self.player.is_playing
                     and self.player.play_type == PlayType.LIVE
                 ):
-                    xm_channel = self.player.current.stream_data[0]
-                    self._pending = (xm_channel, self.player.voice.channel)
-                    await self.player.stop(False)
+                    await self.player.stop(disconnect=False)
 
             if time.time() > (self._last_update + self._update_interval):
                 await self.update()
@@ -267,6 +269,8 @@ class DiscordWorker(
                         channel=xm_channel,
                         live_channel=self._state.live,
                     )
+                else:
+                    self._log.debug("Could not update status, live is none")
             else:
                 activity = Game(
                     name=self.player.current.audio_file.pretty_name
@@ -289,7 +293,7 @@ class DiscordWorker(
             ):
 
                 if self.player.play_type == PlayType.LIVE:
-                    await self.player.stop(False)
+                    await self.player.stop(disconnect=False)
 
                 await self.player.add_live_stream(
                     self._state.get_channel(event.msg[0]), event.msg[1]
@@ -301,7 +305,13 @@ class DiscordWorker(
         elif event.msg_type == Event.UPDATE_CHANNELS:
             self._state.channels = event.msg
         elif event.msg_type == Event.KILL_HLS_STREAM:
-            await self.player.stop()
+            await self.player.stop(kill_hls=False)
+            if event.msg_src == self.name:
+                self._pending = None
+            elif self._pending is not None and self._state.sxm_running:
+                self.bot.loop.create_task(
+                    self._reset_live(self._pending[1], self._pending[0])
+                )
         else:
             self._log.warning(
                 f"Unknown event received: {event.msg_src}, {event.msg_type}"
@@ -314,6 +324,7 @@ class DiscordWorker(
 
         if self.player.is_playing:
             if self.player.play_type != PlayType.FILE:
+                self._pending = None
                 await self.player.stop(disconnect=False)
                 await asyncio.sleep(0.5)
         else:
@@ -330,6 +341,16 @@ class DiscordWorker(
                 await send_message(
                     ctx, f"added {item.bold_name} to now playing queue"
                 )
+
+    async def _reset_live(
+        self, voice_channel: VoiceChannel, xm_channel: XMChannel
+    ):
+        await self.player.stop(kill_hls=False)
+        await self.player.cleanup()
+        self.player = AudioPlayer(self.event_queue, self.bot.loop)
+        await asyncio.sleep(10)
+        await self.player.set_voice(voice_channel)
+        await self.player.add_live_stream(xm_channel)
 
     @command(pass_context=True, cls=MusicCommand)
     async def playing(self, ctx: Context) -> None:
@@ -439,6 +460,7 @@ class DiscordWorker(
             return
 
         await ctx.invoke(self.summon)
+        self._pending = None
         await self.player.stop()
         await self.player.cleanup()
 
@@ -467,6 +489,8 @@ class DiscordWorker(
         """Stops playing audio and leaves the voice channel.
         This also clears the queue.
         """
+
+        self._pending = None
 
         if not await is_playing(ctx):
             return
