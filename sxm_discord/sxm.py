@@ -125,7 +125,7 @@ class SXMCommands:
 
     @command(cls=MusicPlayerGroup)
     async def sxm(self, ctx: Context) -> None:
-        """Command for playing music from SXM"""
+        """Command for playing music from SXM. /sxm can be used as shortcut"""
         if ctx.invoked_subcommand is None:
             await self._invalid_command(ctx, group="sxm")
 

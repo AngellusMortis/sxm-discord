@@ -88,6 +88,22 @@ class DiscordWorker(
         )
         self.bot.add_cog(self)
 
+        @self.bot.event
+        async def on_message(message: Message):
+            for command_group, prefix in self.local_prefix.items():
+                if message.content.startswith(prefix.strip()):
+                    if message.content == f"{prefix}help":
+                        message.content = (
+                            f"{self.global_prefix}help {command_group}"
+                        )
+                    else:
+                        command = message.content.replace(prefix, "")
+                        message.content = (
+                            f"{self.global_prefix}{command_group} {command}"
+                        )
+
+            await self.bot.process_commands(message)
+
         # commands that depend on SQLite DB
         if self._state.processed_folder is None:
             self.bot.remove_command("skip")
@@ -172,17 +188,6 @@ class DiscordWorker(
         elif not isinstance(error, errors.CheckFailure):
             self._log.error(f"{type(error)}: {error}")
             await send_message(ctx, "something went wrong ☹")
-
-    # @Cog.listener()
-    # async def on_socket_raw_receive(
-    #     self, message: Union[str, bytes]
-    # ) -> Union[str, bytes]:
-    #     for command_group, prefix in self.local_prefix.items():
-    #         if message.startswith(prefix.strip()):
-    #             command = message.replace(prefix, "")
-    #             message = f"{self.global_prefix}{command_group} {command}"
-
-    #     return message
 
     @Cog.listener()
     async def on_message(self, message: Message) -> None:
