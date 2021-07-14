@@ -1,7 +1,10 @@
-from typing import Tuple, List, Optional
+from datetime import datetime, timezone
+
+from typing import Tuple, List, Optional, Union
 from discord import Embed, Message
 from discord.ext.commands import errors
 from discord_slash import SlashContext
+from humanize import naturaltime
 
 from sxm.models import (
     XMSong,
@@ -11,7 +14,7 @@ from sxm.models import (
     XMArt,
     XMEpisodeMarker,
 )
-from sxm_player.models import PlayerState
+from sxm_player.models import Episode, PlayerState, Song
 
 __all__ = ["send_message"]
 
@@ -72,6 +75,37 @@ def generate_embed_from_cut(
     embed.add_field(name="SXM", value=xm_channel.pretty_name, inline=True)
     if np_episode_title is not None:
         embed.add_field(name="Show", value=np_episode_title, inline=True)
+
+    if footer is not None:
+        embed.set_footer(text=footer)
+
+    return embed
+
+
+def generate_embed_from_archived(
+    item: Union[Song, Episode], footer: Optional[XMEpisodeMarker] = None
+) -> Optional[Embed]:
+    if isinstance(item, Song):
+        return generate_embed_from_song(item, footer=footer)
+    return None
+
+
+def generate_embed_from_song(
+    song: Song, footer: Optional[XMEpisodeMarker] = None
+) -> Embed:
+    embed = Embed(title=song.title, author=song.artist)
+
+    if song.image_url is not None:
+        embed.set_thumbnail(url=song.image_url)
+    if song.album is not None:
+        embed.add_field(name="Album", value=song.album)
+
+    embed.add_field(
+        name="Aired",
+        value=naturaltime(song.air_time_smart, when=datetime.now(timezone.utc)),
+        inline=True,
+    )
+    embed.add_field(name="SXM", value=song.channel, inline=True)
 
     if footer is not None:
         embed.set_footer(text=footer)

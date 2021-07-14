@@ -1,14 +1,13 @@
 import asyncio
 import time
 import traceback
+from datetime import datetime
 from typing import List, Optional, Tuple, Union
 
-from discord import Activity, Game, TextChannel, VoiceChannel, Intents
-from discord.ext.commands import Bot, Cog
+from discord import Activity, Game, Intents, TextChannel, VoiceChannel
+from discord.ext.commands import BadArgument, Bot, Cog
 from discord_slash import SlashCommand, SlashContext, cog_ext
 from discord_slash.utils.manage_commands import create_option
-from discord.ext.commands import BadArgument
-
 from sxm.models import XMChannel
 from sxm_player.models import Episode, PlayerState, Song
 from sxm_player.queue import Event, EventMessage
@@ -19,17 +18,23 @@ from sxm_player.workers import (
     SXMStatusSubscriber,
 )
 
-from .checks import is_playing, require_matching_voice, require_voice, no_pm
+from .checks import is_playing, no_pm, require_matching_voice, require_voice
 from .converters import CountConverter, VolumeConverter
-from .models import SXMActivity, ReactionCarousel, SXMCutCarousel
+from .models import (
+    ArchivedSongCarousel,
+    ReactionCarousel,
+    SXMActivity,
+    SXMCutCarousel,
+    UpcomingSongCarousel,
+)
 from .music import AudioPlayer, PlayType
 from .sxm import SXMCommands
 from .utils import (
     generate_now_playing_embed,
     get_recent_songs,
     send_message,
+    generate_embed_from_archived,
 )
-
 
 CAROUSEL_TIMEOUT = 30
 
@@ -215,6 +220,12 @@ class DiscordWorker(  # type: ignore
 
             await asyncio.sleep(0.1)
 
+    async def create_carousel(self, ctx: SlashContext, carousel: ReactionCarousel):
+        await carousel.update(self._state, ctx)
+
+        if len(carousel.items) > 1 and carousel.message is not None:
+            self.carousels[carousel.message.id] = carousel
+
     async def update(self):
         activity: Optional[Activity] = None
         if self.player.is_playing:
@@ -238,8 +249,9 @@ class DiscordWorker(  # type: ignore
             pass
 
         for key, carousel in list(self.carousels.items()):
-            seconds_ago = int((self._state.radio_time - carousel.last_update) / 1000)
+            seconds_ago = (datetime.now() - carousel.last_update).total_seconds()
             if seconds_ago > CAROUSEL_TIMEOUT:
+                self._log.info(f"Deleting carousel for message ID {key}")
                 await carousel.refresh_message(self.bot)
                 await carousel.clear_reactions()
                 del self.carousels[key]
@@ -328,12 +340,18 @@ class DiscordWorker(  # type: ignore
                 f"**{self.player.voice.channel.mention}**"
             )
             await send_message(ctx, message, embed=embed)
-        else:
-            name = self.player.current.audio_file.bold_name  # type: ignore
-            channel = self.player.voice.channel  # type: ignore
+        elif (
+            self.player.current is not None
+            and self.player.current.audio_file is not None
+            and self.player.voice is not None
+        ):
+            name = self.player.current.audio_file.bold_name
+            channel = self.player.voice.channel
 
             await send_message(
-                ctx, (f"Currently playing {name} on **{channel.mention}**")
+                ctx,
+                f"Currently playing {name} on **{channel.mention}**",
+                embed=generate_embed_from_archived(self.player.current.audio_file),
             )
 
     async def _recent_live(self, ctx, count):
@@ -357,8 +375,7 @@ class DiscordWorker(  # type: ignore
                 channel=xm_channel,
                 body=message,
             )
-            await carousel.update(self._state, ctx)
-            self.carousels[carousel.message.id] = carousel
+            await self.create_carousel(ctx, carousel)
         else:
             await send_message(ctx, "No recent songs played")
 
@@ -389,16 +406,10 @@ class DiscordWorker(  # type: ignore
         if self.player.play_type == PlayType.LIVE:
             return await self._recent_live(ctx, count)
 
-        message = "Recent songs/shows:\n\n"
-        index = 0
-        for item in self.player.recent[:count]:
-            if item == self.player.current:
-                message += f"now: {item.bold_name}\n"
-            else:
-                message += f"{index}: {item.bold_name}\n"
-            index -= 1
-
-        await send_message(ctx, message)
+        carousel = ArchivedSongCarousel(
+            list(self.player.recent[:count]), body="Recent songs/shows"
+        )
+        await self.create_carousel(ctx, carousel)
 
     @cog_ext.cog_subcommand(
         base="music",
@@ -504,17 +515,12 @@ class DiscordWorker(  # type: ignore
         if self.player.play_type == PlayType.LIVE:
             await send_message(ctx, "Live radio playing, cannot get upcoming")
         else:
-            message = "Upcoming songs/shows:\n\n"
-
-            index = 1
-            for item in self.player.upcoming:
-                if item == self.player.current:
-                    message += f"next: {item.bold_name}\n"
-                else:
-                    message += f"{index}: {item.bold_name}\n"
-                index += 1
-
-            await send_message(ctx, message)
+            carousel = UpcomingSongCarousel(
+                items=list(self.player.upcoming),
+                body="Upcoming songs/shows:",
+                latest=self.player.current,
+            )
+            await self.create_carousel(ctx, carousel)
 
     @cog_ext.cog_subcommand(
         base="music",

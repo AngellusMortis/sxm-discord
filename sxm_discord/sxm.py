@@ -16,6 +16,7 @@ from sxm_player.models import Episode, PlayerState, Song
 
 from .checks import require_voice, require_sxm
 from .converters import XMChannelConverter, XMChannelListConverter
+from .models import ArchivedSongCarousel, ReactionCarousel
 from .music import AudioPlayer
 from .utils import send_message
 
@@ -97,16 +98,27 @@ class SXMCommands:
                 )
                 .order_by(Episode.air_time.desc())[:10]  # type: ignore
             )
-        if len(items) > 0:
-            message = f"{search_type.title()} matching `{search}`:\n\n"
-            for item in items:
-                message += f"{item.guid}: {item.bold_name}\n"
 
-            await send_message(ctx, message)
+        if len(items) > 0:
+            message = f"{search_type.title()} matching `{search}`:"
+            if is_song:
+                carousel = ArchivedSongCarousel(items=list(items), body=message)
+                await self.create_carousel(ctx, carousel)
+            else:
+                message += "\n\n"
+                for item in items:
+                    message += f"{item.guid}: {item.bold_name}\n"
+
+                await send_message(ctx, message)
         else:
             await send_message(ctx, f"no {search_type} results found for `{search}`")
 
     async def _summon(self, ctx: SlashContext) -> None:
+        raise NotImplementedError()
+
+    async def create_carousel(
+        self, ctx: SlashContext, carousel: ReactionCarousel
+    ) -> None:
         raise NotImplementedError()
 
     @cog_ext.cog_subcommand(

@@ -10,7 +10,12 @@ from humanize import naturaltime
 from sxm.models import XMChannel, XMLiveChannel, XMSong, XMCut
 from sxm_player.models import Episode, Song, PlayerState
 
-from .utils import get_art_url_by_size, send_message, generate_embed_from_cut
+from .utils import (
+    generate_embed_from_archived,
+    get_art_url_by_size,
+    send_message,
+    generate_embed_from_cut,
+)
 
 
 @dataclass
@@ -145,7 +150,7 @@ class ReactionCarousel:
         if self.index < (len(self.items) - 1):
             await self.message.add_reaction("➡️")
 
-        self.last_update = state.radio_time
+        self.last_update = datetime.now()
 
 
 @dataclass
@@ -191,3 +196,43 @@ class SXMCutCarousel(ReactionCarousel):
                 footer=self._get_footer(state),
             ),
         }
+
+
+@dataclass
+class ArchivedSongCarousel(ReactionCarousel):
+    items: list[Union[Song, Episode]]
+    body: str
+
+    @property
+    def current(self) -> Song:
+        return super().current
+
+    def _get_footer(self):
+        return f"GUID: {self.current.guid} | {self.index+1}/{len(self.items)} Songs"
+
+    async def update_message(
+        self, message: Optional[str] = None, embed: Optional[Embed] = None
+    ):
+        if self.message is not None and embed is not None:
+            await self.message.edit(embed=embed)
+
+    def get_message_kwargs(self, state: PlayerState) -> dict:
+        return {
+            "message": self.body,
+            "embed": generate_embed_from_archived(
+                self.current, footer=self._get_footer()
+            ),
+        }
+
+
+@dataclass
+class UpcomingSongCarousel(ArchivedSongCarousel):
+    latest: Union[Song, Episode, None] = None
+
+    def _get_footer(self):
+        if self.current == self.latest:
+            message = "Playing Next"
+        else:
+            message = f"{self.index+1} Away"
+
+        return f"{message} | {self.index+1}/{len(self.items)} Songs"
