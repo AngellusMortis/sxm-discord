@@ -1,88 +1,78 @@
 from discord import TextChannel
+from discord_slash import SlashContext
 
-from .utils import send_message
+from .utils import send_message, get_cog
 
 __all__ = ["no_pm", "require_voice"]
 
 
-async def no_pm(ctx):
-    if not isinstance(ctx.message.channel, TextChannel):
+async def no_pm(ctx: SlashContext):
+    if not isinstance(ctx.channel, TextChannel):
         await send_message(
             ctx,
-            (
-                f"`{ctx.message.content}`: can only be used in a text chat "
-                f"room in a Discord server"
-            ),
+            "Can only be used in a text chat room in a Discord server",
         )
         return False
     return True
 
 
-async def require_voice(ctx):
+async def require_voice(ctx: SlashContext):
     if not await no_pm(ctx):
         return False
 
-    if ctx.message.author.voice is None:
+    if ctx.author.voice is None:
         await send_message(
             ctx,
-            (
-                f"`{ctx.message.content}`: can only be ran if you are in "
-                f"a voice channel"
-            ),
+            "Can only be ran if you are in a voice channel",
         )
         return False
     return True
 
 
-async def require_player_voice(ctx):
-    if ctx.cog.player.voice is None:
+async def require_player_voice(ctx: SlashContext):
+    if get_cog(ctx).player.voice is None:
         await send_message(
             ctx,
-            (
-                f"`{ctx.message.content}`: I do not seem to be in a voice "
-                "channel"
-            ),
+            "I do not seem to be in a voice channel",
         )
         return False
     return True
 
 
-async def require_sxm(ctx):
-    if ctx.cog._state.sxm_running:
+async def require_sxm(ctx: SlashContext):
+    if get_cog(ctx)._state.sxm_running:
         return True
-    await send_message(
-        ctx, (f"`{ctx.message.content}`: SXM client is offline")
-    )
+    await send_message(ctx, "SXM client is offline")
     return False
 
 
-async def require_matching_voice(ctx):
+async def require_matching_voice(ctx: SlashContext):
     if not await require_voice(ctx):
         return False
 
     if not await require_player_voice(ctx):
         return False
 
-    if ctx.message.author.voice is None or ctx.cog.player.voice is None:
+    if ctx.author.voice is None or get_cog(ctx).player.voice is None:
         return False
 
-    author_channel = ctx.message.author.voice.channel
-    player_channel = ctx.cog.player.voice.channel
+    author_channel = ctx.author.voice.channel
+    player_channel = get_cog(ctx).player.voice.channel
 
     if author_channel.id != player_channel.id:
         await send_message(
             ctx,
-            (
-                f"`{ctx.message.content}`: I am not in the same voice "
-                f"channel as you"
-            ),
+            "I am not in the same voice channel as you",
         )
         return False
     return True
 
 
-async def is_playing(ctx):
-    if not ctx.cog.player.is_playing:
-        await send_message(ctx, f"`{ctx.message.content}`: nothing is playing")
+async def is_playing(ctx: SlashContext):
+    if not get_cog(ctx).player.is_playing:
+        await send_message(
+            ctx,
+            "Nothing is playing",
+        )
         return False
     return True

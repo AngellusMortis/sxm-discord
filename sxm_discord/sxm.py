@@ -5,7 +5,9 @@ import traceback
 from typing import Optional, Union, Tuple
 
 from discord import VoiceChannel
-from discord.ext.commands import Context, command
+from discord.ext.commands import Context, BadArgument
+from discord_slash import SlashContext, cog_ext
+from discord_slash.utils.manage_commands import create_option
 from sqlalchemy import or_
 from tabulate import tabulate
 
@@ -14,7 +16,6 @@ from sxm_player.models import Episode, PlayerState, Song
 
 from .checks import require_voice, require_sxm
 from .converters import XMChannelConverter, XMChannelListConverter
-from .models import MusicPlayerGroup, SXMCommand
 from .music import AudioPlayer
 from .utils import send_message
 
@@ -26,16 +27,11 @@ class SXMCommands:
     _state: PlayerState
     _pending: Optional[Tuple[XMChannel, VoiceChannel]] = None
 
-    async def _invalid_command(self, ctx: Context, group: str = "") -> None:
-        raise NotImplementedError()
-
     async def _play_archive_file(
         self, ctx: Context, guid: str = None, is_song: bool = False
     ) -> None:
-        """ Queues a song/show file from SXM archive to be played"""
+        """Queues a song/show file from SXM archive to be played"""
 
-        channel = ctx.message.channel
-        author = ctx.message.author
         search_type = "shows"
         if is_song:
             search_type = "songs"
@@ -44,28 +40,22 @@ class SXMCommands:
             return
 
         if guid is None:
-            await channel.send(
-                f"{author.mention}, please provide a {search_type} id"
-            )
+            await send_message(ctx, f"Please provide a {search_type} id")
             return
 
         db_item = None
         if self._state.db is not None:
             if is_song:
-                db_item = (
-                    self._state.db.query(Song).filter_by(guid=guid).first()
-                )
+                db_item = self._state.db.query(Song).filter_by(guid=guid).first()
             else:
-                db_item = (
-                    self._state.db.query(Episode).filter_by(guid=guid).first()
-                )
+                db_item = self._state.db.query(Episode).filter_by(guid=guid).first()
 
         if db_item is not None and not os.path.exists(db_item.file_path):
-            self._log.warn(f"file does not exist: {db_item.file_path}")
+            self._log.warn(f"File does not exist: {db_item.file_path}")
             db_item = None
 
         if db_item is None:
-            await channel.send(f"{author.mention}, invalid {search_type} id")
+            await send_message(ctx, f"Invalid {search_type} id")
             return
 
         await self._play_file(ctx, db_item)
@@ -75,10 +65,8 @@ class SXMCommands:
     ) -> None:
         raise NotImplementedError()
 
-    async def _search_archive(
-        self, ctx: Context, search: str, is_song: bool
-    ) -> None:
-        """ Searches song/show database and responds with results """
+    async def _search_archive(self, ctx: Context, search: str, is_song: bool) -> None:
+        """Searches song/show database and responds with results"""
 
         search_type = "shows"
         if is_song:
@@ -114,39 +102,44 @@ class SXMCommands:
             for item in items:
                 message += f"{item.guid}: {item.bold_name}\n"
 
-            await send_message(ctx, message, sep="\n\n")
+            await send_message(ctx, message)
         else:
-            await send_message(
-                ctx, f"no {search_type} results found for `{search}`"
-            )
+            await send_message(ctx, f"no {search_type} results found for `{search}`")
 
-    async def summon(self, ctx: Context) -> None:
+    async def _summon(self, ctx: SlashContext) -> None:
         raise NotImplementedError()
 
-    @command(cls=MusicPlayerGroup)
-    async def sxm(self, ctx: Context) -> None:
-        """Command for playing music from SXM. /sxm can be used as shortcut"""
-        if ctx.invoked_subcommand is None:
-            await self._invalid_command(ctx, group="sxm")
-
-    @sxm.command(name="channel", pass_context=True, no_pm=True, cls=SXMCommand)
-    async def sxm_channel(
-        self, ctx: Context, *, xm_channel: XMChannelConverter
-    ) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="channel",
+        options=[
+            create_option(
+                name="channel",
+                description="SXM Channel",
+                option_type=3,
+                required=False,
+            )
+        ],
+    )
+    async def sxm_channel(self, ctx: SlashContext, *, channel: str) -> None:
         """Plays a specific SXM channel"""
 
         if not await require_voice(ctx) or not await require_sxm(ctx):
             return
 
-        channel = ctx.message.channel
-        author = ctx.message.author
+        try:
+            xm_channel = await XMChannelConverter().convert(ctx, channel)
+        except BadArgument as e:
+            await send_message(ctx, str(e))
+            return
 
         if self.player.is_playing:
             self._pending = None
             await self.player.stop(disconnect=False)
             await asyncio.sleep(0.5)
         else:
-            await ctx.invoke(self.summon)
+            await self._summon(ctx)
 
         try:
             self._log.info(f"play: {xm_channel.id}")
@@ -155,26 +148,24 @@ class SXMCommands:
             self._log.error("error while trying to add channel to play queue:")
             self._log.error(traceback.format_exc())
             await self.player.stop()
-            await channel.send(
-                f"{author.mention}, something went wrong starting stream"
-            )
+            await send_message(ctx, "Something went wrong starting stream")
         else:
             if self.player.voice is not None:
                 self._pending = (xm_channel, self.player.voice.channel)
-                await channel.send(
-                    f"{author.mention} starting playing "
-                    f"**{xm_channel.pretty_name}** in "
-                    f"**{author.voice.channel.mention}**"
+                await send_message(
+                    ctx,
+                    (
+                        f"Started playing **{xm_channel.pretty_name}** in "
+                        f"**{ctx.author.voice.channel.mention}**"
+                    ),
                 )
 
-    @sxm.command(name="channels", pass_context=True, cls=SXMCommand)
-    async def sxm_channels(self, ctx: Context) -> None:
+    @cog_ext.cog_subcommand(base="music", subcommand_group="sxm", name="channels")
+    async def sxm_channels(self, ctx: SlashContext) -> None:
         """Bot will PM with list of possible SXM channel"""
 
         if not await require_sxm(ctx):
             return
-
-        author = ctx.message.author
 
         display_channels = []
         for channel in self._state.channels:
@@ -192,8 +183,9 @@ class SXMCommands:
             display_channels, headers=["ID", "#", "Name", "Description"]
         )
 
-        self._log.debug(f"sending {len(display_channels)} for {author}")
-        await author.send("SXM Channels:")
+        self._log.debug(f"sending {len(display_channels)} for {ctx.author}")
+        await ctx.author.send("SXM Channels:")
+        await send_message(ctx, "PM'd list of channels")
         while len(channel_table) > 0:
             message = ""
             if len(channel_table) < 1900:
@@ -205,22 +197,42 @@ class SXMCommands:
                 start = index + 1
                 channel_table = channel_table[start:]
 
-            await author.send(f"```{message}```")
+            await ctx.author.send(f"```{message}```")
 
-    @sxm.command(
-        name="playlist", pass_context=True, no_pm=True, cls=SXMCommand
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="playlist",
+        options=[
+            create_option(
+                name="channels",
+                description="SXM Channels to pick from",
+                option_type=3,
+                required=True,
+            ),
+            create_option(
+                name="threshold",
+                description="Number of songs for channel to be considered",
+                option_type=4,
+                required=False,
+            ),
+        ],
     )
     async def sxm_playlist(
         self,
-        ctx: Context,
-        xm_channels: XMChannelListConverter,
+        ctx: SlashContext,
+        channels: str,
         threshold: int = 40,
     ) -> None:
-        """ Play a random playlist from archived songs
-        for a SXM channel. Can use comma seperated list of channel_ids
-        to play from multiple channels (max 5 channels) """
+        """Play a random playlist from archived songs for a SXM channel."""
 
         if not await require_voice(ctx):
+            return
+
+        try:
+            xm_channels = await XMChannelListConverter().convert(ctx, channels)
+        except BadArgument as e:
+            await send_message(ctx, str(e))
             return
 
         if self._state.db is None:
@@ -233,16 +245,14 @@ class SXMCommands:
         unique_songs = unique_songs.distinct().all()
 
         if len(unique_songs) < threshold:
-            await send_message(
-                ctx, "not enough archived songs in provided channels"
-            )
+            await send_message(ctx, "not enough archived songs in provided channels")
             return
 
         if self.player.is_playing:
             await self.player.stop(disconnect=False)
             await asyncio.sleep(0.5)
         else:
-            await ctx.invoke(self.summon)
+            await self._summon(ctx)
 
         try:
             await self.player.add_playlist(xm_channels, self._state.db)
@@ -252,48 +262,95 @@ class SXMCommands:
             await self.player.stop()
             await send_message(ctx, "something went wrong starting playlist")
         else:
+            voice_channel = ctx.author.voice.channel
             if len(xm_channels) == 1:
-                await ctx.message.channel.send(
-                    f"{ctx.message.author.mention} starting playing a "
-                    f"playlist of random songs from "
-                    f"**{xm_channels[0].pretty_name}** in "
-                    f"**{ctx.message.author.voice.channel.mention}**"
+                await send_message(
+                    ctx,
+                    (
+                        "Started playing a playlist of random songs from"
+                        f"**{xm_channels[0].pretty_name}** in "
+                        f"**{voice_channel.mention}**"
+                    ),
                 )
             else:
-                channel_nums = ", ".join(
-                    [f"#{x.channel_number}" for x in xm_channels]
-                )
-                await ctx.message.channel.send(
-                    f"{ctx.message.author.mention} starting playing a "
-                    f"playlist of random songs from **{channel_nums}** in "
-                    f"**{ctx.message.author.voice.channel.mention}**"
+                channel_nums = ", ".join([f"#{x.channel_number}" for x in xm_channels])
+                await send_message(
+                    ctx,
+                    (
+                        "Started playing a playlist of random songs from"
+                        f"**{channel_nums}** in **{voice_channel.mention}**"
+                    ),
                 )
 
-    @sxm.command(name="show", pass_context=True, no_pm=True, cls=SXMCommand)
-    async def sxm_show(
-        self, ctx: Context, show_id: Optional[str] = None
-    ) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="show",
+        options=[
+            create_option(
+                name="show_id",
+                description="Show GUID",
+                option_type=3,
+                required=True,
+            )
+        ],
+    )
+    async def sxm_show(self, ctx: SlashContext, show_id: Optional[str] = None) -> None:
         """Adds a show to a play queue"""
 
         await self._play_archive_file(ctx, show_id, False)
 
-    @sxm.command(name="shows", pass_context=True, cls=SXMCommand)
-    async def sxm_shows(self, ctx: Context, search: str) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="shows",
+        options=[
+            create_option(
+                name="search",
+                description="Search Query",
+                option_type=3,
+                required=True,
+            )
+        ],
+    )
+    async def sxm_shows(self, ctx: SlashContext, search: str) -> None:
         """Searches for an archived show to play.
         Only returns the first 10 shows"""
 
         await self._search_archive(ctx, search, False)
 
-    @sxm.command(name="song", pass_context=True, no_pm=True, cls=SXMCommand)
-    async def sxm_song(
-        self, ctx: Context, song_id: Optional[str] = None
-    ) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="song",
+        options=[
+            create_option(
+                name="song_id",
+                description="Song GUID",
+                option_type=3,
+                required=True,
+            )
+        ],
+    )
+    async def sxm_song(self, ctx: SlashContext, song_id: str) -> None:
         """Adds a song to a play queue"""
 
         await self._play_archive_file(ctx, song_id, True)
 
-    @sxm.command(name="songs", pass_context=True, cls=SXMCommand)
-    async def sxm_songs(self, ctx: Context, search: str) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        subcommand_group="sxm",
+        name="songs",
+        options=[
+            create_option(
+                name="search",
+                description="Search Query",
+                option_type=3,
+                required=True,
+            )
+        ],
+    )
+    async def sxm_songs(self, ctx: SlashContext, search: str) -> None:
         """Searches for an archived song to play.
         Only returns the first 10 songs"""
 

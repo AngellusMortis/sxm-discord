@@ -51,9 +51,7 @@ class DiscordPlayer(BasePlayer):
         context = click.get_current_context()
         processed_folder: Optional[str] = None
         if "output_folder" in kwargs and kwargs["output_folder"] is not None:
-            processed_folder = os.path.join(
-                kwargs["output_folder"], "processed"
-            )
+            processed_folder = os.path.join(kwargs["output_folder"], "processed")
 
         params = {
             "token": context.params["token"],

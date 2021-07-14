@@ -1,38 +1,42 @@
 from typing import Tuple, List, Optional
-from discord import DMChannel, Embed, TextChannel
+from discord import Embed, Message
 from discord.ext.commands import errors
+from discord_slash import SlashContext
 
-from sxm.models import XMSong, XMImage, XMChannel, XMCut, XMArt
+from sxm.models import (
+    XMSong,
+    XMImage,
+    XMChannel,
+    XMCut,
+    XMArt,
+    XMEpisodeMarker,
+)
 from sxm_player.models import PlayerState
 
 __all__ = ["send_message"]
 
 
+def get_cog(ctx: SlashContext):
+    return ctx.bot.cogs[ctx.name.title()]
+
+
 async def send_message(
-    ctx, message: str = None, embed: Embed = None, sep: str = ", "
-):
+    ctx: SlashContext,
+    message: Optional[str] = None,
+    embed: Optional[Embed] = None,
+) -> Message:
     if message is None and embed is None:
         raise errors.CommandError("A message or a embed must be provided")
 
-    if isinstance(ctx, TextChannel):
-        channel = ctx
-    elif isinstance(ctx.message.channel, (DMChannel, TextChannel)):
-        channel = ctx.message.channel
-        if message is not None:
-            message = f"{ctx.message.author.mention}{sep}{message}"
-        else:
-            message = ctx.message.author.mention
-
-    await channel.send(message, embed=embed)
+    return await ctx.send(message, embed=embed)
 
 
-def generate_now_playing_embed(state: PlayerState) -> Tuple[XMChannel, Embed]:
-    xm_channel = state.get_channel(state.stream_channel)
-
-    if state.live is not None:
-        cut = state.live.get_latest_cut(now=state.radio_time)
-        episode = state.live.get_latest_episode(now=state.radio_time)
-
+def generate_embed_from_cut(
+    xm_channel: XMChannel,
+    cut: Optional[XMCut],
+    episode: Optional[XMEpisodeMarker] = None,
+    footer: Optional[XMEpisodeMarker] = None,
+) -> Embed:
     np_title = None
     np_author = None
     np_thumbnail = None
@@ -69,7 +73,20 @@ def generate_now_playing_embed(state: PlayerState) -> Tuple[XMChannel, Embed]:
     if np_episode_title is not None:
         embed.add_field(name="Show", value=np_episode_title, inline=True)
 
-    return xm_channel, embed
+    if footer is not None:
+        embed.set_footer(text=footer)
+
+    return embed
+
+
+def generate_now_playing_embed(state: PlayerState) -> Tuple[XMChannel, Embed]:
+    xm_channel = state.get_channel(state.stream_channel)
+
+    if state.live is not None:
+        cut = state.live.get_latest_cut(now=state.radio_time)
+        episode = state.live.get_latest_episode(now=state.radio_time)
+
+    return xm_channel, generate_embed_from_cut(xm_channel, cut, episode)
 
 
 def get_recent_songs(
@@ -80,11 +97,14 @@ def get_recent_songs(
     if state.live is None or xm_channel is None:
         return (xm_channel, [], None)
 
-    song_cuts = []
+    song_cuts: List[XMCut] = []
     now = state.radio_time
     latest_cut = state.live.get_latest_cut(now)
 
     for song_cut in reversed(state.live.song_cuts):
+        if len(song_cuts) >= count:
+            break
+
         if song_cut == latest_cut:
             song_cuts.append(song_cut)
             continue
@@ -97,20 +117,13 @@ def get_recent_songs(
         ):
             song_cuts.append(song_cut)
 
-        if len(song_cuts) >= count:
-            break
-
     return xm_channel, song_cuts, latest_cut
 
 
 def get_art_url_by_size(arts: List[XMArt], size: str) -> Optional[str]:
     for art in arts:
-        if (
-            isinstance(art, XMImage)
-            and art.size is not None
-            and art.size == size
-        ):
-            return art
+        if isinstance(art, XMImage) and art.size is not None and art.size == size:
+            return art.url
     return None
 
 

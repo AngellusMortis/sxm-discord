@@ -19,5 +19,6 @@ sphinx
 sphinx-rtd-theme
 tox
 twine
+types-tabulate
 versioneer
 wheel

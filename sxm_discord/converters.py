@@ -2,17 +2,18 @@ from dataclasses import dataclass
 from typing import List, Union
 
 from discord.ext.commands import BadArgument, Converter
-
 from sxm.models import XMChannel
+
+from sxm_discord.utils import get_cog
 
 
 class XMChannelConverter(Converter):
     async def convert(self, ctx, channel_id: str) -> XMChannel:
-        channel = ctx.cog._state.get_channel(channel_id)
+        channel = get_cog(ctx)._state.get_channel(channel_id)
 
         if channel is None:
             raise BadArgument(
-                f"`channel_id` is invalid. Use `{ctx.prefix}channels` for "
+                f"`channel_id` is invalid. Use `/{ctx.name} sxm channels` for "
                 f"a list of valid channels"
             )
 
@@ -20,9 +21,7 @@ class XMChannelConverter(Converter):
 
 
 class XMChannelListConverter(XMChannelConverter):
-    async def convert(
-        self, ctx, channel_ids: Union[str, List[str]]
-    ) -> List[XMChannel]:
+    async def convert(self, ctx, channel_ids: Union[str, List[str]]) -> List[XMChannel]:
         if isinstance(channel_ids, str):
             channel_ids = channel_ids.split(",")
         channels = []
@@ -68,7 +67,7 @@ class CountConverter(IntRangeConverter):
 @dataclass
 class VolumeConverter(IntRangeConverter):
     max: int = 100
-    name: str = "volume"
+    name: str = "amount"
 
     async def convert(  # type: ignore
         self, ctx, argument: Union[str, int, None]

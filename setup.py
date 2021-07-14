@@ -40,9 +40,7 @@ setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
     ],
-    description=(
-        "Discord player class for sxm-player that will run a Discord bot"
-    ),
+    description=("Discord player class for sxm-player that will run a Discord bot"),
     install_requires=requirements["requirements"],
     license="MIT license",
     long_description=readme + "\n\n" + history,

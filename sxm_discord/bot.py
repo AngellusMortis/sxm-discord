@@ -1,12 +1,13 @@
 import asyncio
-import datetime
 import time
 import traceback
 from typing import List, Optional, Tuple, Union
 
-from discord import Activity, Game, Message, TextChannel, VoiceChannel
-from discord.ext.commands import Bot, Cog, Context, command, errors
-from humanize import naturaltime
+from discord import Activity, Game, TextChannel, VoiceChannel, Intents
+from discord.ext.commands import Bot, Cog
+from discord_slash import SlashCommand, SlashContext, cog_ext
+from discord_slash.utils.manage_commands import create_option
+from discord.ext.commands import BadArgument
 
 from sxm.models import XMChannel
 from sxm_player.models import Episode, PlayerState, Song
@@ -18,15 +19,22 @@ from sxm_player.workers import (
     SXMStatusSubscriber,
 )
 
-from .checks import is_playing, require_matching_voice, require_voice
+from .checks import is_playing, require_matching_voice, require_voice, no_pm
 from .converters import CountConverter, VolumeConverter
-from .models import MusicCommand, SXMActivity
+from .models import SXMActivity, ReactionCarousel, SXMCutCarousel
 from .music import AudioPlayer, PlayType
 from .sxm import SXMCommands
-from .utils import generate_now_playing_embed, get_recent_songs, send_message
+from .utils import (
+    generate_now_playing_embed,
+    get_recent_songs,
+    send_message,
+)
 
 
-class DiscordWorker(
+CAROUSEL_TIMEOUT = 30
+
+
+class DiscordWorker(  # type: ignore
     InterruptableWorker,
     HLSStatusSubscriber,
     SXMStatusSubscriber,
@@ -35,11 +43,13 @@ class DiscordWorker(
     name="Music",
 ):
     bot: Bot
+    slash: SlashCommand
     global_prefix: str
     local_prefix: dict
     token: str
     output_channel: Optional[TextChannel] = None
     player: AudioPlayer
+    carousels: dict[int, ReactionCarousel] = {}
 
     _output_channel_id: Optional[int] = None
     _last_update: float = 0
@@ -57,9 +67,11 @@ class DiscordWorker(
         sxm_status: bool,
         stream_data: Tuple[Optional[str], Optional[str]] = (None, None),
         channels: Optional[List[dict]] = None,
-        raw_live_data: Tuple[
-            Optional[float], Optional[float], Optional[dict]
-        ] = (None, None, None),
+        raw_live_data: Tuple[Optional[float], Optional[float], Optional[dict]] = (
+            None,
+            None,
+            None,
+        ),
         *args,
         **kwargs,
     ):
@@ -67,6 +79,8 @@ class DiscordWorker(
         SXMStatusSubscriber.__init__(self, sxm_status_queue)
         hls_stream_queue = kwargs.pop("hls_stream_queue")
         HLSStatusSubscriber.__init__(self, hls_stream_queue)
+
+        kwargs["name"] = "Music"
         super().__init__(*args, **kwargs)
 
         self._state = PlayerState()
@@ -84,25 +98,10 @@ class DiscordWorker(
         self.bot = Bot(
             command_prefix=self.global_prefix,
             description=description,
-            pm_help=True,
+            intents=Intents.default(),
         )
+        self.slash = SlashCommand(self.bot, sync_commands=True, sync_on_cog_reload=True)
         self.bot.add_cog(self)
-
-        @self.bot.event
-        async def on_message(message: Message):
-            for command_group, prefix in self.local_prefix.items():
-                if message.content.startswith(prefix.strip()):
-                    if message.content == f"{prefix}help":
-                        message.content = (
-                            f"{self.global_prefix}help {command_group}"
-                        )
-                    else:
-                        command = message.content.replace(prefix, "")
-                        message.content = (
-                            f"{self.global_prefix}{command_group} {command}"
-                        )
-
-            await self.bot.process_commands(message)
 
         # commands that depend on SQLite DB
         if self._state.processed_folder is None:
@@ -161,60 +160,20 @@ class DiscordWorker(
             await self._sxm_running_message()
 
     @Cog.listener()
-    async def on_command_error(
-        self, ctx: Context, error: errors.CommandError
-    ) -> None:
-        if isinstance(error, errors.BadArgument):
-            message = (
-                f"`{self.global_prefix}{ctx.command.name}`: {error.args[0]}"
-            )
-            await send_message(ctx, message)
-        elif isinstance(error, errors.CommandNotFound):
-            self._log.info(
-                f"{ctx.message.author}: invalid command: {ctx.message.content}"
-            )
-            await self._invalid_command(ctx)
+    async def on_reaction_add(self, reaction, user):
+        # ignore bot user reactions
+        if user.id == self.bot.user.id:
+            return
 
-        elif isinstance(error, errors.MissingRequiredArgument):
-            self._log.info(
-                f"{ctx.message.author}: missing arg: {ctx.message.content}"
-            )
-
-            arg = str(error).split(" ")[0]
-            arg = arg.replace("xm_channel", "channel_id")
-
-            message = f"`{ctx.message.content}`: `{arg}` is missing"
-            await send_message(ctx, message)
-        elif not isinstance(error, errors.CheckFailure):
-            self._log.error(f"{type(error)}: {error}")
-            await send_message(ctx, "something went wrong ☹")
-
-    @Cog.listener()
-    async def on_message(self, message: Message) -> None:
-        ctx = await self.bot.get_context(message)
-        author = ctx.message.author
-
-        if message.content.startswith(self.global_prefix.strip()):
-            if isinstance(ctx.message.channel, TextChannel):
-                await ctx.message.delete()
-
-        if ctx.valid:
-            self._log.info(f"{author}: {message.content}")
-        elif message.content == self.global_prefix.strip():
-            await self._invalid_command(ctx)
+        carousel = self.carousels.get(reaction.message.id)
+        if carousel is not None:
+            carousel.message = reaction.message
+            await carousel.handle_reaction(self._state, reaction.emoji)
 
     # helper methods
     async def bot_output(self, message: str):
         if self.output_channel is not None:
             await send_message(self.output_channel, message)
-
-    async def _invalid_command(self, ctx: Context, group: str = ""):
-        help_command = f"{self.global_prefix}help {group}".strip()
-        message = (
-            f"`{ctx.message.content}`: invalid command. "
-            f"Use `{help_command}` for a list of commands"
-        )
-        await send_message(ctx, message)
 
     async def _sxm_running_message(self):
         await self.bot_output(
@@ -231,8 +190,7 @@ class DiscordWorker(
 
                 if event:
                     self._log.debug(
-                        f"Received event: {event.msg_src}, "
-                        f"{event.msg_type.name}"
+                        f"Received event: {event.msg_src}, " f"{event.msg_type.name}"
                     )
                     await self._handle_event(event)
 
@@ -248,10 +206,7 @@ class DiscordWorker(
                 await self.bot_output(
                     "Connection to SXM was lost. Will automatically reconnect"
                 )
-                if (
-                    self.player.is_playing
-                    and self.player.play_type == PlayType.LIVE
-                ):
+                if self.player.is_playing and self.player.play_type == PlayType.LIVE:
                     await self.player.stop(disconnect=False)
 
             if time.time() > (self._last_update + self._update_interval):
@@ -265,9 +220,7 @@ class DiscordWorker(
         if self.player.is_playing:
             if self.player.play_type == PlayType.LIVE:
                 if self._state.live is not None:
-                    xm_channel = self._state.get_channel(
-                        self._state.stream_channel
-                    )
+                    xm_channel = self._state.get_channel(self._state.stream_channel)
                     activity = SXMActivity(
                         start=self._state.start_time,
                         radio_time=self._state.radio_time,
@@ -277,14 +230,19 @@ class DiscordWorker(
                 else:
                     self._log.debug("Could not update status, live is none")
             else:
-                activity = Game(
-                    name=self.player.current.audio_file.pretty_name
-                )
+                activity = Game(name=self.player.current.audio_file.pretty_name)
 
         try:
             await self.bot.change_presence(activity=activity)
         except AttributeError:
             pass
+
+        for key, carousel in list(self.carousels.items()):
+            seconds_ago = int((self._state.radio_time - carousel.last_update) / 1000)
+            if seconds_ago > CAROUSEL_TIMEOUT:
+                await carousel.refresh_message(self.bot)
+                await carousel.clear_reactions()
+                del self.carousels[key]
 
     async def _handle_event(self, event: EventMessage):
         if event.msg_type == Event.SXM_STATUS:
@@ -292,10 +250,7 @@ class DiscordWorker(
         elif event.msg_type == Event.HLS_STREAM_STARTED:
             self._state.stream_data = event.msg
 
-            if (
-                self.player.play_type == PlayType.LIVE
-                or self.player.play_type is None
-            ):
+            if self.player.play_type == PlayType.LIVE or self.player.play_type is None:
 
                 if self.player.play_type == PlayType.LIVE:
                     await self.player.stop(disconnect=False)
@@ -323,9 +278,12 @@ class DiscordWorker(
             )
 
     async def _play_file(
-        self, ctx: Context, item: Union[Song, Episode], message: bool = True
+        self,
+        ctx: SlashContext,
+        item: Union[Song, Episode],
+        message: bool = True,
     ) -> None:
-        """ Queues a file to be played """
+        """Queues a file to be played"""
 
         if self.player.is_playing:
             if self.player.play_type != PlayType.FILE:
@@ -333,7 +291,7 @@ class DiscordWorker(
                 await self.player.stop(disconnect=False)
                 await asyncio.sleep(0.5)
         else:
-            await ctx.invoke(self.summon)
+            await self._summon(ctx)
 
         try:
             self._log.info(f"play: {item.file_path}")
@@ -343,13 +301,9 @@ class DiscordWorker(
             self._log.error(traceback.format_exc())
         else:
             if message:
-                await send_message(
-                    ctx, f"added {item.bold_name} to now playing queue"
-                )
+                await send_message(ctx, f"added {item.bold_name} to now playing queue")
 
-    async def _reset_live(
-        self, voice_channel: VoiceChannel, xm_channel: XMChannel
-    ):
+    async def _reset_live(self, voice_channel: VoiceChannel, xm_channel: XMChannel):
         await self.player.stop(kill_hls=False)
         await self.player.cleanup()
         self.player = AudioPlayer(self.event_queue, self.bot.loop)
@@ -357,8 +311,8 @@ class DiscordWorker(
         await self.player.set_voice(voice_channel)
         await self.player.add_live_stream(xm_channel)
 
-    @command(pass_context=True, cls=MusicCommand)
-    async def playing(self, ctx: Context) -> None:
+    @cog_ext.cog_subcommand(base="music")
+    async def playing(self, ctx: SlashContext) -> None:
         """Responds with what the bot currently playing"""
 
         if not await is_playing(ctx):
@@ -370,7 +324,7 @@ class DiscordWorker(
 
             xm_channel, embed = generate_now_playing_embed(self._state)
             message = (
-                f"currently playing **{xm_channel.pretty_name}** on "
+                f"Currently playing **{xm_channel.pretty_name}** on "
                 f"**{self.player.voice.channel.mention}**"
             )
             await send_message(ctx, message, embed=embed)
@@ -379,64 +333,85 @@ class DiscordWorker(
             channel = self.player.voice.channel  # type: ignore
 
             await send_message(
-                ctx, (f"current playing {name} on **{channel.mention}**")
+                ctx, (f"Currently playing {name} on **{channel.mention}**")
             )
 
-    @command(pass_context=True, cls=MusicCommand)
-    async def recent(  # type: ignore
-        self, ctx: Context, count: CountConverter = 3
-    ) -> None:
+    async def _recent_live(self, ctx, count):
+        if self._state.stream_channel is None or self.player.voice is None:
+            return
+
+        xm_channel, song_cuts, latest_cut = get_recent_songs(self._state, count)
+
+        total = len(song_cuts)
+        if total > 0:
+            if total == 1:
+                message = f"Most recent song for **{xm_channel.pretty_name}**:"
+            else:
+                message = (
+                    f"{total} most recent songs for " f"**{xm_channel.pretty_name}**:"
+                )
+
+            carousel = SXMCutCarousel(
+                items=song_cuts,
+                latest=latest_cut,
+                channel=xm_channel,
+                body=message,
+            )
+            await carousel.update(self._state, ctx)
+            self.carousels[carousel.message.id] = carousel
+        else:
+            await send_message(ctx, "No recent songs played")
+
+    @cog_ext.cog_subcommand(
+        base="music",
+        options=[
+            create_option(
+                name="count",
+                description="Number of songs to return (1-10)",
+                option_type=4,
+                required=False,
+            )
+        ],
+    )
+    async def recent(self, ctx: SlashContext, count: int = 3) -> None:
         """Responds with the last 1-10 songs that been
         played on this channel"""
+
+        try:
+            count = await CountConverter().convert(ctx, count)
+        except BadArgument as e:
+            await send_message(ctx, str(e))
+            return
 
         if not await is_playing(ctx):
             return
 
         if self.player.play_type == PlayType.LIVE:
-            if self._state.stream_channel is None or self.player.voice is None:
-                return
+            return await self._recent_live(ctx, count)
 
-            xm_channel, song_cuts, latest_cut = get_recent_songs(
-                self._state, count
-            )
-            now = self._state.radio_time
-
-            if len(song_cuts) > 0:
-                message = f"Recent songs for **{xm_channel.pretty_name}**:\n\n"
-
-                for song_cut in song_cuts:
-                    seconds_ago = int((now - song_cut.time) / 1000)
-                    time_delta = datetime.timedelta(seconds=seconds_ago)
-                    time_string = naturaltime(time_delta)
-
-                    pretty_name = Song.get_pretty_name(
-                        song_cut.cut.title, song_cut.cut.artists[0].name, True
-                    )
-                    if song_cut == latest_cut:
-                        message += f"now: {pretty_name}\n"
-                    else:
-                        message += f"about {time_string}: {pretty_name}\n"
-
-                await send_message(ctx, message, sep="\n\n")
+        message = "Recent songs/shows:\n\n"
+        index = 0
+        for item in self.player.recent[:count]:
+            if item == self.player.current:
+                message += f"now: {item.bold_name}\n"
             else:
-                await send_message(ctx, "no recent songs played")
-        else:
-            message = f"Recent songs/shows:\n\n"
+                message += f"{index}: {item.bold_name}\n"
+            index -= 1
 
-            index = 0
-            for item in self.player.recent[:count]:
-                if item == self.player.current:
-                    message += f"now: {item.bold_name}\n"
-                else:
-                    message += f"{index}: {item.bold_name}\n"
-                index -= 1
+        await send_message(ctx, message)
 
-            await send_message(ctx, message, sep="\n\n")
-
-    @command(pass_context=True, cls=MusicCommand)
-    async def repeat(
-        self, ctx: Context, do_repeat: Union[bool, None] = None
-    ) -> None:
+    @cog_ext.cog_subcommand(
+        base="music",
+        options=[
+            create_option(
+                name="do_repeat",
+                description="On/Off",
+                option_type=5,
+                required=False,
+            )
+        ],
+    )
+    async def repeat(self, ctx: SlashContext, do_repeat: Optional[bool] = None) -> None:
         """Set/Unset play queue to repeat infinitely"""
 
         if not await is_playing(ctx):
@@ -444,7 +419,7 @@ class DiscordWorker(
 
         if do_repeat is None:
             status = "on" if self.player.repeat else "off"
-            await send_message(ctx, f"repeat is currently {status}")
+            await send_message(ctx, f"Repeat is currently {status}")
         elif self.player.play_type == PlayType.LIVE:
             await send_message(
                 ctx, "Cannot change repeat while playing a SXM live channel"
@@ -455,78 +430,81 @@ class DiscordWorker(
                 "Cannot change repeat while playing a SXM Archive playlist",
             )
         else:
-            await send_message(ctx, f"set repeat to {status}")
+            self.player.repeat = do_repeat
+            status = "on" if self.player.repeat else "off"
+            await send_message(ctx, f"Set repeat to {status}")
 
-    @command(pass_context=True, no_pm=True, cls=MusicCommand)
-    async def reset(self, ctx: Context) -> None:
+    @cog_ext.cog_subcommand(base="music")
+    async def reset(self, ctx: SlashContext) -> None:
         """Forces bot to leave voice and hard resets audio player"""
 
         if not await require_voice(ctx):
             return
 
-        await ctx.invoke(self.summon)
+        await self._summon(ctx)
         self._pending = None
         await self.player.stop()
         await self.player.cleanup()
 
         self.player = AudioPlayer(self.event_queue, self.bot.loop)
 
-    @command(pass_context=True, no_pm=True, cls=MusicCommand)
-    async def skip(self, ctx: Context) -> None:
+        await send_message(ctx, "Bot reset successfully")
+
+    @cog_ext.cog_subcommand(base="music")
+    async def skip(self, ctx: SlashContext) -> None:
         """Skips current song. Does not work for SXM"""
 
-        if not await is_playing(ctx):
+        if not await no_pm(ctx) or not await is_playing(ctx):
             return
 
-        channel = ctx.message.channel
-        author = ctx.message.author
-
         if self.player.play_type == PlayType.LIVE:
-            await channel.send(
-                f"{author.mention}, cannot skip. SXM radio is playing"
-            )
+            await send_message(ctx, "Cannot skip. SXM radio is playing")
             return
 
         await self.player.skip()
+        await send_message(ctx, "Song skipped")
 
-    @command(pass_context=True, no_pm=True, cls=MusicCommand)
-    async def stop(self, ctx: Context) -> None:
+    @cog_ext.cog_subcommand(base="music")
+    async def stop(self, ctx: SlashContext) -> None:
         """Stops playing audio and leaves the voice channel.
         This also clears the queue.
         """
 
+        if not await no_pm(ctx) or not await is_playing(ctx):
+            return
+
         self._pending = None
-
-        if not await is_playing(ctx):
-            return
-
         await self.player.stop()
-        await ctx.message.channel.send(
-            f"{ctx.message.author.mention} stopped playing music"
-        )
+        await send_message(ctx, "Stopped playing music")
 
-    @command(pass_context=True, no_pm=True, cls=MusicCommand)
-    async def summon(self, ctx: Context) -> None:
-        """Summons the bot to join your voice channel"""
-
-        if not await require_voice(ctx):
+    async def _summon(self, ctx: SlashContext) -> None:
+        if not await no_pm(ctx) or not await require_voice(ctx):
             return
 
-        summoned_channel = ctx.message.author.voice.channel
+        summoned_channel = ctx.author.voice.channel
         await self.player.set_voice(summoned_channel)
 
-    @command(pass_context=True, cls=MusicCommand)
-    async def upcoming(self, ctx: Context) -> None:
-        """ Displaying the songs/shows on play queue. Does not
-        work for live SXM radio """
+    @cog_ext.cog_subcommand(base="music")
+    async def summon(self, ctx: SlashContext) -> None:
+        """Summons the bot to join your voice channel"""
+
+        await self._summon(ctx)
+        await send_message(
+            ctx, f"Successfully joined {ctx.author.voice.channel.mention}"
+        )
+
+    @cog_ext.cog_subcommand(base="music")
+    async def upcoming(self, ctx: SlashContext) -> None:
+        """Displaying the songs/shows on play queue. Does not
+        work for live SXM radio"""
 
         if not await is_playing(ctx):
             return
 
         if self.player.play_type == PlayType.LIVE:
-            await send_message(ctx, "live radio playing, cannot get upcoming")
+            await send_message(ctx, "Live radio playing, cannot get upcoming")
         else:
-            message = f"Upcoming songs/shows:\n\n"
+            message = "Upcoming songs/shows:\n\n"
 
             index = 1
             for item in self.player.upcoming:
@@ -536,29 +514,36 @@ class DiscordWorker(
                     message += f"{index}: {item.bold_name}\n"
                 index += 1
 
-            await send_message(ctx, message, sep="\n\n")
+            await send_message(ctx, message)
 
-    @command(pass_context=True, no_pm=True, cls=MusicCommand)
-    async def volume(
-        self, ctx: Context, amount: VolumeConverter = None
-    ) -> None:
-        """Changes the volume of music
-        """
+    @cog_ext.cog_subcommand(
+        base="music",
+        options=[
+            create_option(
+                name="amount",
+                description="Volume Level (1-100)",
+                option_type=4,
+                required=False,
+            )
+        ],
+    )
+    async def volume(self, ctx: SlashContext, amount: Optional[int] = None) -> None:
+        """Changes the volume of music"""
 
-        if not await require_matching_voice(ctx):
+        if not await no_pm(ctx) or not await require_matching_voice(ctx):
             return
 
-        channel = ctx.message.channel
-        author = ctx.message.author
+        try:
+            amount_percent = await VolumeConverter().convert(ctx, amount)
+        except BadArgument as e:
+            await send_message(ctx, str(e))
+            return
 
-        if amount is None:
-            await channel.send(
-                f"{author.mention}, volume is currently "
-                f"{int(self.player.volume * 100)}%"
+        if amount_percent is None:
+            await send_message(
+                ctx, f"Volume is currently {int(self.player.volume * 100)}%"
             )
-        else:
-            self.player.volume = amount
-            await channel.send(
-                f"{author.mention}, set volume to "
-                f"{int(self.player.volume * 100)}%"
-            )
+            return
+
+        self.player.volume = amount_percent
+        await send_message(ctx, f"Set volume to {int(self.player.volume * 100)}%")

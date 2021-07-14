@@ -5,7 +5,9 @@
 #    pip-compile --output-file=requirements.txt reqs/requirements.in
 #
 aiohttp==3.7.4.post0
-    # via discord.py
+    # via
+    #   discord-py-slash-command
+    #   discord.py
 async-timeout==3.0.1
     # via aiohttp
 attrs==21.2.0
@@ -28,8 +30,12 @@ dataclasses==0.6
     # via sxm
 decorator==5.0.9
     # via ipython
-discord.py==1.7.3
+discord-py-slash-command==2.3.2
     # via -r reqs/requirements.in
+discord.py==1.7.3
+    # via
+    #   -r reqs/requirements.in
+    #   discord-py-slash-command
 fake-useragent==0.1.11
     # via sxm
 greenlet==1.1.0

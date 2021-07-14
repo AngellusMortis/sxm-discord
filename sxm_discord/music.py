@@ -166,9 +166,7 @@ class AudioPlayer:
         if self._current is not None and self._current.source is not None:
             self._current.source.cleanup()
 
-    async def add_live_stream(
-        self, channel: XMChannel, stream_url=None
-    ) -> bool:
+    async def add_live_stream(self, channel: XMChannel, stream_url=None) -> bool:
         """ Adds HLS live stream to playing queue """
 
         if self.play_type is None:
@@ -183,9 +181,7 @@ class AudioPlayer:
         )
         return False
 
-    async def add_playlist(
-        self, xm_channels: List[XMChannel], db: Session
-    ) -> bool:
+    async def add_playlist(self, xm_channels: List[XMChannel], db: Session) -> bool:
         """ Creates a playlist of random songs from an channel """
 
         if self.play_type is None:
@@ -235,9 +231,7 @@ class AudioPlayer:
             item = QueuedItem(audio_file=file_info, stream_data=None)
             self.upcoming.append(item.audio_file)
         elif stream_data[1] is None:
-            self._log.debug(
-                f"trigging HLS stream for channel {stream_data[0].id}"
-            )
+            self._log.debug(f"trigging HLS stream for channel {stream_data[0].id}")
             success = self._event_queue.safe_put(
                 EventMessage(
                     "discord",
@@ -350,18 +344,13 @@ class AudioPlayer:
 
             await self._player_event.wait()
 
-            if (
-                self.play_type == PlayType.RANDOM
-                and self._player_queue.qsize() < 5
-            ):
+            if self.play_type == PlayType.RANDOM and self._player_queue.qsize() < 5:
                 await self._add_random_playlist_song()
             elif self.repeat and self.play_type == PlayType.FILE:
                 try:
                     await self._add(file_info=self._current.audio_file)
                 except Exception:
-                    self._log.error(
-                        "Exception while re-add song to queue for repeat:"
-                    )
+                    self._log.error("Exception while re-add song to queue for repeat:")
                     self._log.error(traceback.format_exc())
 
             self._current = None
