@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Tuple, Union, List
+from typing import List, Optional, Tuple, Union
 
 from discord import Embed, Game, Message, PCMVolumeTransformer, errors
 from discord.ext.commands import Command, Group

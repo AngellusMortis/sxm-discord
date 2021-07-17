@@ -2,7 +2,7 @@ import asyncio
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple, Union, Dict
+from typing import Dict, List, Optional, Tuple, Union
 
 from discord import Activity, Game, Intents, TextChannel, VoiceChannel
 from discord.ext.commands import BadArgument, Bot, Cog
