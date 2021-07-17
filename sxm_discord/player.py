@@ -7,7 +7,7 @@ from sxm_player.players import BasePlayer, Option
 from sxm_player.runner import Runner
 from sxm_player.workers import BaseWorker
 
-from .bot import DiscordWorker
+from sxm_discord.utils import set_root_command
 
 
 class DiscordPlayer(BasePlayer):
@@ -48,7 +48,6 @@ class DiscordPlayer(BasePlayer):
 
         params = {
             "token": context.meta["token"],
-            "root_command": context.meta["root_command"],
             "description": context.meta["description"],
             "output_channel_id": context.meta["output_channel_id"],
             "processed_folder": processed_folder,
@@ -58,4 +57,10 @@ class DiscordPlayer(BasePlayer):
             "raw_live_data": state.get_raw_live(),
         }
 
-        return (DiscordWorker, "discord", params)
+        set_root_command(context.meta["root_command"])
+        # must be imported _after_ `set_root_command`
+        from sxm_discord.bot import DiscordArchivedWorker, DiscordWorker
+
+        if processed_folder is None:
+            return (DiscordWorker, "discord", params)
+        return (DiscordArchivedWorker, "discord", params)

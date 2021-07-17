@@ -13,11 +13,11 @@ from sxm.models import XMChannel
 from sxm_player.models import DBEpisode, DBSong, Episode, PlayerState, Song
 from tabulate import tabulate
 
-from .checks import require_sxm, require_voice
-from .converters import XMChannelConverter, XMChannelListConverter
-from .models import ArchivedSongCarousel, ReactionCarousel
-from .music import AudioPlayer
-from .utils import send_message
+from sxm_discord.checks import require_sxm, require_voice
+from sxm_discord.converters import XMChannelConverter, XMChannelListConverter
+from sxm_discord.models import ArchivedSongCarousel, ReactionCarousel
+from sxm_discord.music import AudioPlayer
+from sxm_discord.utils import get_root_command, send_message
 
 
 class SXMCommands:
@@ -133,7 +133,7 @@ class SXMCommands:
         raise NotImplementedError()
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="channel",
         options=[
@@ -183,7 +183,9 @@ class SXMCommands:
                     ),
                 )
 
-    @cog_ext.cog_subcommand(base="music", subcommand_group="sxm", name="channels")
+    @cog_ext.cog_subcommand(
+        base=get_root_command(), subcommand_group="sxm", name="channels"
+    )
     async def sxm_channels(self, ctx: SlashContext) -> None:
         """Bot will PM with list of possible SXM channel"""
 
@@ -222,8 +224,10 @@ class SXMCommands:
 
             await ctx.author.send(f"```{message}```")
 
+
+class SXMArchivedCommands(SXMCommands):
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="playlist",
         options=[
@@ -306,7 +310,7 @@ class SXMCommands:
                 )
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="show",
         options=[
@@ -324,7 +328,7 @@ class SXMCommands:
         await self._play_archive_file(ctx, show_id, False)
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="shows",
         options=[
@@ -343,7 +347,7 @@ class SXMCommands:
         await self._search_archive(ctx, search, False)
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="song",
         options=[
@@ -361,7 +365,7 @@ class SXMCommands:
         await self._play_archive_file(ctx, song_id, True)
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         subcommand_group="sxm",
         name="songs",
         options=[

@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple, Union
 
@@ -10,9 +11,20 @@ from sxm_player.models import Episode, PlayerState, Song
 
 __all__ = ["send_message"]
 
+ROOT_COMMAND_ENV = "SXM_INTERNAL_ROOT_COMMAND"
+SXM_COG_NAME = "SXMMusic"
+
 
 def get_cog(ctx: SlashContext):
-    return ctx.bot.cogs[ctx.name.title()]
+    return ctx.bot.cogs[SXM_COG_NAME]
+
+
+def set_root_command(value: str):
+    os.environ[ROOT_COMMAND_ENV] = value
+
+
+def get_root_command() -> str:
+    return os.environ.get(ROOT_COMMAND_ENV, "Music")
 
 
 async def send_message(

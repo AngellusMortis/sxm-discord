@@ -18,6 +18,17 @@ from sxm_player.workers import (
     SXMStatusSubscriber,
 )
 
+from sxm_discord.music import AudioPlayer, PlayType
+from sxm_discord.sxm import SXMArchivedCommands, SXMCommands
+from sxm_discord.utils import (
+    SXM_COG_NAME,
+    generate_embed_from_archived,
+    generate_now_playing_embed,
+    get_recent_songs,
+    get_root_command,
+    send_message,
+)
+
 from .checks import is_playing, no_pm, require_matching_voice, require_voice
 from .converters import CountConverter, VolumeConverter
 from .models import (
@@ -27,14 +38,6 @@ from .models import (
     SXMActivity,
     SXMCutCarousel,
     UpcomingSongCarousel,
-)
-from .music import AudioPlayer, PlayType
-from .sxm import SXMCommands
-from .utils import (
-    generate_embed_from_archived,
-    generate_now_playing_embed,
-    get_recent_songs,
-    send_message,
 )
 
 CAROUSEL_TIMEOUT = 30
@@ -46,7 +49,7 @@ class DiscordWorker(
     SXMStatusSubscriber,
     SXMCommands,
     Cog,
-    name="Music",
+    name=SXM_COG_NAME,
 ):
     bot: Bot
     slash: SlashCommand
@@ -64,7 +67,6 @@ class DiscordWorker(
     def __init__(
         self,
         token: str,
-        root_command: str,
         description: str,
         output_channel_id: Optional[int],
         processed_folder: str,
@@ -97,29 +99,17 @@ class DiscordWorker(
         self._state.set_raw_live(raw_live_data)
         self._event_queues = [self.sxm_status_queue, self.hls_stream_queue]
 
-        self.root_command = root_command
+        self.root_command = get_root_command()
 
         self.token = token
         self.bot = Bot(
-            command_prefix=self.root_command,
+            command_prefix=f"/{self.root_command}",
             description=description,
             intents=Intents.default(),
+            help_command=None,
         )
         self.slash = SlashCommand(self.bot, sync_commands=True, sync_on_cog_reload=True)
         self.bot.add_cog(self)
-
-        # commands that depend on SQLite DB
-        if self._state.processed_folder is None:
-            self.bot.remove_command("skip")
-            self.bot.remove_command("upcoming")
-
-            sxm = self.bot.get_command("sxm")
-            sxm.remove_command("song")
-            sxm.remove_command("songs")
-            sxm.remove_command("show")
-            sxm.remove_command("shows")
-            sxm.remove_command("playlist")
-
         self.player = AudioPlayer(self.event_queue, self.bot.loop)
 
         if output_channel_id is not None:
@@ -328,7 +318,7 @@ class DiscordWorker(
         await self.player.set_voice(voice_channel)
         await self.player.add_live_stream(xm_channel)
 
-    @cog_ext.cog_subcommand(base="music")
+    @cog_ext.cog_subcommand(base=get_root_command())
     async def playing(self, ctx: SlashContext) -> None:
         """Responds with what the bot currently playing"""
 
@@ -384,7 +374,7 @@ class DiscordWorker(
             await send_message(ctx, "No recent songs played")
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         options=[
             create_option(
                 name="count",
@@ -416,7 +406,7 @@ class DiscordWorker(
         await self.create_carousel(ctx, carousel)
 
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         options=[
             create_option(
                 name="do_repeat",
@@ -449,7 +439,7 @@ class DiscordWorker(
             status = "on" if self.player.repeat else "off"
             await send_message(ctx, f"Set repeat to {status}")
 
-    @cog_ext.cog_subcommand(base="music")
+    @cog_ext.cog_subcommand(base=get_root_command())
     async def reset(self, ctx: SlashContext) -> None:
         """Forces bot to leave voice and hard resets audio player"""
 
@@ -465,21 +455,7 @@ class DiscordWorker(
 
         await send_message(ctx, "Bot reset successfully")
 
-    @cog_ext.cog_subcommand(base="music")
-    async def skip(self, ctx: SlashContext) -> None:
-        """Skips current song. Does not work for SXM"""
-
-        if not await no_pm(ctx) or not await is_playing(ctx):
-            return
-
-        if self.player.play_type == PlayType.LIVE:
-            await send_message(ctx, "Cannot skip. SXM radio is playing")
-            return
-
-        await self.player.skip()
-        await send_message(ctx, "Song skipped")
-
-    @cog_ext.cog_subcommand(base="music")
+    @cog_ext.cog_subcommand(base=get_root_command())
     async def stop(self, ctx: SlashContext) -> None:
         """Stops playing audio and leaves the voice channel.
         This also clears the queue.
@@ -499,7 +475,7 @@ class DiscordWorker(
         summoned_channel = ctx.author.voice.channel
         await self.player.set_voice(summoned_channel)
 
-    @cog_ext.cog_subcommand(base="music")
+    @cog_ext.cog_subcommand(base=get_root_command())
     async def summon(self, ctx: SlashContext) -> None:
         """Summons the bot to join your voice channel"""
 
@@ -508,26 +484,8 @@ class DiscordWorker(
             ctx, f"Successfully joined {ctx.author.voice.channel.mention}"
         )
 
-    @cog_ext.cog_subcommand(base="music")
-    async def upcoming(self, ctx: SlashContext) -> None:
-        """Displaying the songs/shows on play queue. Does not
-        work for live SXM radio"""
-
-        if not await is_playing(ctx):
-            return
-
-        if self.player.play_type == PlayType.LIVE:
-            await send_message(ctx, "Live radio playing, cannot get upcoming")
-        elif self.player.current is not None:
-            carousel = UpcomingSongCarousel(
-                items=list(self.player.upcoming),
-                body="Upcoming songs/shows:",
-                latest=self.player.current.audio_file,
-            )
-            await self.create_carousel(ctx, carousel)
-
     @cog_ext.cog_subcommand(
-        base="music",
+        base=get_root_command(),
         options=[
             create_option(
                 name="amount",
@@ -557,3 +515,41 @@ class DiscordWorker(
 
         self.player.volume = amount_percent
         await send_message(ctx, f"Set volume to {int(self.player.volume * 100)}%")
+
+
+class DiscordArchivedWorker(
+    SXMArchivedCommands,
+    DiscordWorker,
+    name=SXM_COG_NAME,
+):
+    @cog_ext.cog_subcommand(base=get_root_command())
+    async def skip(self, ctx: SlashContext) -> None:
+        """Skips current song. Does not work for SXM"""
+
+        if not await no_pm(ctx) or not await is_playing(ctx):
+            return
+
+        if self.player.play_type == PlayType.LIVE:
+            await send_message(ctx, "Cannot skip. SXM radio is playing")
+            return
+
+        await self.player.skip()
+        await send_message(ctx, "Song skipped")
+
+    @cog_ext.cog_subcommand(base=get_root_command())
+    async def upcoming(self, ctx: SlashContext) -> None:
+        """Displaying the songs/shows on play queue. Does not
+        work for live SXM radio"""
+
+        if not await is_playing(ctx):
+            return
+
+        if self.player.play_type == PlayType.LIVE:
+            await send_message(ctx, "Live radio playing, cannot get upcoming")
+        elif self.player.current is not None:
+            carousel = UpcomingSongCarousel(
+                items=list(self.player.upcoming),
+                body="Upcoming songs/shows:",
+                latest=self.player.current.audio_file,
+            )
+            await self.create_carousel(ctx, carousel)
