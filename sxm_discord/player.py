@@ -12,7 +12,13 @@ from sxm_discord.utils import set_root_command
 
 class DiscordPlayer(BasePlayer):
     params: List[click.Parameter] = [
-        Option("--token", required=True, type=str, help="Discord bot token"),
+        Option(
+            "--token",
+            required=True,
+            type=str,
+            help="Discord bot token",
+            envvar="SXM_DISCORD_TOKEN",
+        ),
         Option(
             "--root-command",
             type=str,
