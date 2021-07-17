@@ -2,19 +2,18 @@ import asyncio
 import logging
 import os
 import traceback
-from typing import Optional, Union, Tuple
+from typing import List, Optional, Tuple, Union
 
 from discord import VoiceChannel
-from discord.ext.commands import Context, BadArgument
-from discord_slash import SlashContext, cog_ext
-from discord_slash.utils.manage_commands import create_option
+from discord.ext.commands import BadArgument, Context
+from discord_slash import SlashContext, cog_ext  # type: ignore
+from discord_slash.utils.manage_commands import create_option  # type: ignore
 from sqlalchemy import or_
+from sxm.models import XMChannel
+from sxm_player.models import DBEpisode, DBSong, Episode, PlayerState, Song
 from tabulate import tabulate
 
-from sxm.models import XMChannel
-from sxm_player.models import Episode, PlayerState, Song
-
-from .checks import require_voice, require_sxm
+from .checks import require_sxm, require_voice
 from .converters import XMChannelConverter, XMChannelListConverter
 from .models import ArchivedSongCarousel, ReactionCarousel
 from .music import AudioPlayer
@@ -44,22 +43,28 @@ class SXMCommands:
             await send_message(ctx, f"Please provide a {search_type} id")
             return
 
-        db_item = None
+        audio_file: Union[Song, Episode, None] = None
         if self._state.db is not None:
             if is_song:
-                db_item = self._state.db.query(Song).filter_by(guid=guid).first()
+                db_song = self._state.db.query(DBSong).filter_by(guid=guid).first()
+                if db_song is not None:
+                    audio_file = Song.from_orm(db_song)
             else:
-                db_item = self._state.db.query(Episode).filter_by(guid=guid).first()
+                db_episode = (
+                    self._state.db.query(DBEpisode).filter_by(guid=guid).first()
+                )
+                if db_episode is not None:
+                    audio_file = Episode.from_orm(db_episode)
 
-        if db_item is not None and not os.path.exists(db_item.file_path):
-            self._log.warn(f"File does not exist: {db_item.file_path}")
-            db_item = None
+        if audio_file is not None and not os.path.exists(audio_file.file_path):
+            self._log.warn(f"File does not exist: {audio_file.file_path}")
+            audio_file = None
 
-        if db_item is None:
+        if audio_file is None:
             await send_message(ctx, f"Invalid {search_type} id")
             return
 
-        await self._play_file(ctx, db_item)
+        await self._play_file(ctx, audio_file)
 
     async def _play_file(
         self, ctx: Context, item: Union[Song, Episode], message: bool = True
@@ -69,35 +74,41 @@ class SXMCommands:
     async def _search_archive(self, ctx: Context, search: str, is_song: bool) -> None:
         """Searches song/show database and responds with results"""
 
+        if self._state.db is None:
+            await send_message(ctx, "No active db connection")
+            return
+
         search_type = "shows"
         if is_song:
             search_type = "songs"
 
-        items = None
+        items: List[Union[Song, Episode]] = []
         if is_song:
-            items = (
-                self._state.db.query(Song)  # type: ignore
+            db_songs = (
+                self._state.db.query(DBSong)
                 .filter(
                     or_(
-                        Song.guid.ilike(f"{search}%"),  # type: ignore
-                        Song.title.ilike(f"{search}%"),  # type: ignore
-                        Song.artist.ilike(f"{search}%"),  # type: ignore
+                        DBSong.guid.ilike(f"{search}%"),
+                        DBSong.title.ilike(f"{search}%"),
+                        DBSong.artist.ilike(f"{search}%"),
                     )
                 )
-                .order_by(Song.air_time.desc())[:10]  # type: ignore
+                .order_by(DBSong.air_time.desc())[:10]
             )
+            items = [Song.from_orm(i) for i in db_songs]
         else:
-            items = (
-                self._state.db.query(Episode)  # type: ignore
+            db_episodes = (
+                self._state.db.query(DBEpisode)
                 .filter(
                     or_(
-                        Episode.guid.ilike(f"{search}%"),  # type: ignore
-                        Episode.title.ilike(f"{search}%"),  # type: ignore
-                        Episode.show.ilike(f"{search}%"),  # type: ignore
+                        DBEpisode.guid.ilike(f"{search}%"),
+                        DBEpisode.title.ilike(f"{search}%"),
+                        DBEpisode.show.ilike(f"{search}%"),
                     )
                 )
-                .order_by(Episode.air_time.desc())[:10]  # type: ignore
+                .order_by(DBEpisode.air_time.desc())[:10]
             )
+            items = [Episode.from_orm(i) for i in db_episodes]
 
         if len(items) > 0:
             message = f"{search_type.title()} matching `{search}`:"
@@ -111,7 +122,7 @@ class SXMCommands:
 
                 await send_message(ctx, message)
         else:
-            await send_message(ctx, f"no {search_type} results found for `{search}`")
+            await send_message(ctx, f"No {search_type} results found for `{search}`")
 
     async def _summon(self, ctx: SlashContext) -> None:
         raise NotImplementedError()
@@ -163,7 +174,7 @@ class SXMCommands:
             await send_message(ctx, "Something went wrong starting stream")
         else:
             if self.player.voice is not None:
-                self._pending = (xm_channel, self.player.voice.channel)
+                self._pending = (xm_channel, self.player.voice.channel)  # type: ignore
                 await send_message(
                     ctx,
                     (
@@ -179,15 +190,15 @@ class SXMCommands:
         if not await require_sxm(ctx):
             return
 
-        display_channels = []
+        display_channels: List[Tuple[str, int, str, str]] = []
         for channel in self._state.channels:
             display_channels.append(
-                [
+                (
                     channel.id,
                     int(channel.channel_number),
                     channel.name,
                     channel.short_description,
-                ]
+                )
             )
 
         display_channels = sorted(display_channels, key=lambda l: l[1])
@@ -251,10 +262,10 @@ class SXMCommands:
             return
 
         channel_ids = [x.id for x in xm_channels]
-        unique_songs = self._state.db.query(Song.title, Song.artist).filter(
-            Song.channel.in_(channel_ids)  # type: ignore
+        unique_songs_query = self._state.db.query(DBSong.title, DBSong.artist).filter(
+            DBSong.channel.in_(channel_ids)
         )
-        unique_songs = unique_songs.distinct().all()
+        unique_songs = unique_songs_query.distinct().all()
 
         if len(unique_songs) < threshold:
             await send_message(ctx, "not enough archived songs in provided channels")

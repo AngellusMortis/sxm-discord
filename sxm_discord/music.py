@@ -5,20 +5,14 @@ from enum import Enum, auto
 from random import SystemRandom
 from typing import List, Optional, Tuple, Union
 
-from discord import (
-    FFmpegPCMAudio,
-    PCMVolumeTransformer,
-    VoiceChannel,
-    VoiceClient,
-)
+from discord import FFmpegPCMAudio, PCMVolumeTransformer, VoiceChannel, VoiceClient
 from sqlalchemy import and_
 from sqlalchemy.orm.session import Session
-
 from sxm.models import XMChannel
-from sxm_player.models import Episode, Song
-from sxm_player.queue import Event, EventMessage
+from sxm_player.models import DBSong, Episode, Song
+from sxm_player.queue import EventMessage, EventTypes, Queue
 
-from .models import QueuedItem
+from sxm_discord.models import AudioQueuedItem, QueuedItem
 
 
 class PlayType(Enum):
@@ -33,7 +27,7 @@ class AudioPlayer:
     upcoming: List[Union[Episode, Song]]
     repeat: bool = False
 
-    _event_queue: Event
+    _event_queue: Queue
     _log: logging.Logger
     _loop: asyncio.AbstractEventLoop
     _player_event: asyncio.Event
@@ -46,7 +40,7 @@ class AudioPlayer:
     _voice: Optional[VoiceClient] = None
     _volume: float = 0.25
 
-    def __init__(self, event_queue: Event, loop: asyncio.AbstractEventLoop):
+    def __init__(self, event_queue: Queue, loop: asyncio.AbstractEventLoop):
 
         self._event_queue = event_queue
         self._log = logging.getLogger("sxm_discord.player")
@@ -63,7 +57,7 @@ class AudioPlayer:
 
     @property
     def is_playing(self) -> bool:
-        """ Returns if `AudioPlayer` is playing audio """
+        """Returns if `AudioPlayer` is playing audio"""
 
         if self._voice is None or self._current is None:
             return False
@@ -72,11 +66,11 @@ class AudioPlayer:
 
     @property
     def voice(self) -> Optional[VoiceClient]:
-        """ Gets the voice client for audio player """
+        """Gets the voice client for audio player"""
         return self._voice
 
     async def set_voice(self, channel: VoiceChannel) -> None:
-        """ Sets voice channel for audio player """
+        """Sets voice channel for audio player"""
 
         if self._voice is None:
             self._voice = await channel.connect()
@@ -85,7 +79,7 @@ class AudioPlayer:
 
     @property
     def current(self) -> Optional[QueuedItem]:
-        """ Returns current `Song` or `Episode` that is being played """
+        """Returns current `Song` or `Episode` that is being played"""
 
         if self._current is not None:
             return self._current
@@ -93,13 +87,13 @@ class AudioPlayer:
 
     @property
     def volume(self) -> float:
-        """ Gets current volume level """
+        """Gets current volume level"""
 
         return self._volume
 
     @volume.setter
     def volume(self, volume: float) -> None:
-        """ Sets current volume level """
+        """Sets current volume level"""
 
         if volume < 0.0:
             volume = 0.0
@@ -107,11 +101,11 @@ class AudioPlayer:
             volume = 1.0
 
         self._volume = volume
-        if self._current is not None:
+        if self._current is not None and self._current.source is not None:
             self._current.source.volume = self._volume
 
     async def stop(self, disconnect=True, kill_hls=True):
-        """ Stops the `AudioPlayer` """
+        """Stops the `AudioPlayer`"""
 
         self._log.debug(f"player stop: {disconnect}")
 
@@ -142,13 +136,13 @@ class AudioPlayer:
                 # clean up any existing HLS stream
                 if self.play_type == PlayType.LIVE and kill_hls:
                     self._event_queue.safe_put(
-                        EventMessage("discord", Event.KILL_HLS_STREAM, None)
+                        EventMessage("discord", EventTypes.KILL_HLS_STREAM, None)
                     )
 
         self.play_type = None
 
     async def skip(self) -> bool:
-        """ Skips current `QueueItem` """
+        """Skips current `QueueItem`"""
 
         self._log.debug("skiping song")
         if self._voice is not None:
@@ -167,7 +161,7 @@ class AudioPlayer:
             self._current.source.cleanup()
 
     async def add_live_stream(self, channel: XMChannel, stream_url=None) -> bool:
-        """ Adds HLS live stream to playing queue """
+        """Adds HLS live stream to playing queue"""
 
         if self.play_type is None:
             self.play_type = PlayType.LIVE
@@ -182,7 +176,7 @@ class AudioPlayer:
         return False
 
     async def add_playlist(self, xm_channels: List[XMChannel], db: Session) -> bool:
-        """ Creates a playlist of random songs from an channel """
+        """Creates a playlist of random songs from an channel"""
 
         if self.play_type is None:
             self._log.debug(f"adding playlist: {xm_channels}")
@@ -201,7 +195,7 @@ class AudioPlayer:
         return False
 
     async def add_file(self, file_info: Union[Song, Episode]) -> bool:
-        """ Adds file to playing queue """
+        """Adds file to playing queue"""
 
         if self.play_type == PlayType.LIVE:
             self._log.warning(
@@ -220,7 +214,7 @@ class AudioPlayer:
         file_info: Union[Song, Episode, None] = None,
         stream_data: Optional[Tuple[XMChannel, Optional[str]]] = None,
     ) -> None:
-        """ Adds item to playing queue """
+        """Adds item to playing queue"""
 
         if self._voice is None:
             self._discard("Voice client is not set")
@@ -228,14 +222,14 @@ class AudioPlayer:
 
         item: Optional[QueuedItem] = None
         if stream_data is None:
-            item = QueuedItem(audio_file=file_info, stream_data=None)
+            item = AudioQueuedItem(audio_file=file_info, stream_data=None)
             self.upcoming.append(item.audio_file)
         elif stream_data[1] is None:
             self._log.debug(f"trigging HLS stream for channel {stream_data[0].id}")
             success = self._event_queue.safe_put(
                 EventMessage(
                     "discord",
-                    Event.TRIGGER_HLS_STREAM,
+                    EventTypes.TRIGGER_HLS_STREAM,
                     (stream_data[0].id, "udp"),
                 )
             )
@@ -258,31 +252,31 @@ class AudioPlayer:
 
         channel_ids = [x.id for x in self._playlist_data[0]]
 
-        songs = (
+        song_query = (
             self._playlist_data[1]
-            .query(Song.title, Song.artist)
-            .filter(Song.channel.in_(channel_ids))  # type: ignore
+            .query(DBSong.title, DBSong.artist)
+            .filter(DBSong.channel.in_(channel_ids))
         )
-        songs = songs.distinct().all()
+        songs = song_query.distinct().all()
 
         song = self._random.choice(songs)
         song = (
             self._playlist_data[1]
-            .query(Song)
+            .query(DBSong)
             .filter(
                 and_(
-                    Song.channel.in_(channel_ids),  # type: ignore
-                    Song.title == song[0],
-                    Song.artist == song[1],
+                    DBSong.channel.in_(channel_ids),
+                    DBSong.title == song[0],
+                    DBSong.artist == song[1],
                 )
             )
             .first()
         )
 
-        return await self.add_file(file_info=song)
+        return await self.add_file(file_info=Song.from_orm(song))
 
     async def _audio_player(self) -> None:
-        """ Bot task to manage and run the audio player """
+        """Bot task to manage and run the audio player"""
 
         while not self._shutdown_event.is_set():
             self._player_event.clear()
@@ -311,7 +305,7 @@ class AudioPlayer:
                     continue
 
                 log_item = self._current.stream_data[0].id
-                self._current.source = FFmpegPCMAudio(
+                new_source = FFmpegPCMAudio(
                     self._current.stream_data[1],
                     before_options="-f mpegts",
                     options="-loglevel fatal",
@@ -331,13 +325,9 @@ class AudioPlayer:
                 self.recent = self.recent[:10]
 
                 log_item = self._current.audio_file.file_path
-                self._current.source = FFmpegPCMAudio(
-                    self._current.audio_file.file_path
-                )
+                new_source = FFmpegPCMAudio(self._current.audio_file.file_path)
 
-            self._current.source = PCMVolumeTransformer(
-                self._current.source, volume=self._volume
-            )
+            self._current.source = PCMVolumeTransformer(new_source, volume=self._volume)
             self._log.info(f"playing {log_item}")
 
             self._voice.play(self._current.source, after=self._song_end)
@@ -361,7 +351,7 @@ class AudioPlayer:
         self._current = None
 
     def _song_end(self, error: Optional[Exception] = None) -> None:
-        """ Callback for `discord.AudioPlayer`/`discord.VoiceClient` """
+        """Callback for `discord.AudioPlayer`/`discord.VoiceClient`"""
 
         self._log.debug("song end")
         if not self._loop.is_closed():

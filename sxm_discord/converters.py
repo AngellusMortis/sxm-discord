@@ -9,7 +9,7 @@ from sxm_discord.utils import get_cog
 
 class XMChannelConverter(Converter):
     async def convert(self, ctx, channel_id: str) -> XMChannel:
-        channel = get_cog(ctx)._state.get_channel(channel_id)
+        channel: XMChannel = get_cog(ctx)._state.get_channel(channel_id)
 
         if channel is None:
             raise BadArgument(
@@ -21,13 +21,16 @@ class XMChannelConverter(Converter):
 
 
 class XMChannelListConverter(XMChannelConverter):
-    async def convert(self, ctx, channel_ids: Union[str, List[str]]) -> List[XMChannel]:
+    async def convert(  # type: ignore
+        self, ctx, channel_ids: Union[str, List[str]]
+    ) -> List[XMChannel]:
         if isinstance(channel_ids, str):
             channel_ids = channel_ids.split(",")
-        channels = []
+        channels: List[XMChannel] = []
 
         for channel_id in channel_ids:
-            channels.append(await super().convert(ctx, channel_id))
+            channel = await super().convert(ctx, channel_id)
+            channels.append(channel)
 
         if len(channels) > 5:
             raise BadArgument("too many `channel_ids`. Cannot be more than 5")
@@ -37,14 +40,15 @@ class XMChannelListConverter(XMChannelConverter):
 
 @dataclass
 class IntRangeConverter(Converter):
-    min: int = 1
-    max: int = 10
+    min_number: int = 1
+    max_number: int = 10
     name: str = "argument"
 
     @property
     def message(self):
-        return "`{name}` must be a number between {min} and {max}".format(
-            name=self.name, min=self.min, max=self.max
+        return (
+            f"`{self.name}` must be a number between "
+            f"{self.min_number} and {self.max_number}"
         )
 
     async def convert(self, ctx, argument: Union[str, int]) -> int:
@@ -53,7 +57,7 @@ class IntRangeConverter(Converter):
         except ValueError:
             raise BadArgument(self.message)
 
-        if argument > self.max or argument < self.min:
+        if argument > self.max_number or argument < self.min_number:
             raise BadArgument(self.message)
 
         return argument
@@ -66,7 +70,7 @@ class CountConverter(IntRangeConverter):
 
 @dataclass
 class VolumeConverter(IntRangeConverter):
-    max: int = 100
+    max_number: int = 100
     name: str = "amount"
 
     async def convert(  # type: ignore

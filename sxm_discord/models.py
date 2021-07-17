@@ -1,20 +1,19 @@
-from datetime import datetime, timedelta
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional, Tuple, Union
 
-from discord import AudioSource, Game, Message, Embed, errors
+from discord import Embed, Game, Message, PCMVolumeTransformer, errors
 from discord.ext.commands import Command, Group
-from discord_slash import SlashContext
-from humanize import naturaltime
-
-from sxm.models import XMChannel, XMLiveChannel, XMSong, XMCut
-from sxm_player.models import Episode, Song, PlayerState
+from discord_slash import SlashContext  # type: ignore
+from humanize import naturaltime  # type: ignore
+from sxm.models import XMChannel, XMCutMarker, XMLiveChannel, XMSong
+from sxm_player.models import Episode, PlayerState, Song
 
 from .utils import (
     generate_embed_from_archived,
+    generate_embed_from_cut,
     get_art_url_by_size,
     send_message,
-    generate_embed_from_cut,
 )
 
 
@@ -23,7 +22,11 @@ class QueuedItem:
     audio_file: Union[Song, Episode, None] = None
     stream_data: Optional[Tuple[XMChannel, str]] = None
 
-    source: AudioSource = None
+    source: Optional[PCMVolumeTransformer] = None
+
+
+class AudioQueuedItem(QueuedItem):
+    audio_file: Union[Song, Episode]
 
 
 class MusicCommand(Command):
@@ -44,20 +47,13 @@ class SXMCommand(Command):
         return "SXM Player"
 
 
-class SXMActivity(Game):
+class SongActivity(Game):
     def __init__(
         self,
-        start: Optional[int],
-        radio_time: Optional[int],
-        channel: XMChannel,
-        live_channel: XMLiveChannel,
+        song: Song,
         **kwargs,
     ):
-
-        self.timestamps = {"start": start}
-        self._start = start
-        self.details = "Test"
-
+        self._start = self._end = 0.0
         self.assets = kwargs.pop("assets", {})
         self.party = kwargs.pop("party", {})
         self.application_id = kwargs.pop("application_id", None)
@@ -65,35 +61,88 @@ class SXMActivity(Game):
         self.flags = kwargs.pop("flags", 0)
         self.sync_id = kwargs.pop("sync_id", None)
         self.session_id = kwargs.pop("session_id", None)
-        self._end = 0
 
-        self.update_status(channel, live_channel, radio_time)
+        self.update_status(song)
 
     def update_status(
-        self,
-        channel: XMChannel,
-        live_channel: XMLiveChannel,
-        radio_time: Optional[int],
+        self, song: Optional[Song], state: str = "Playing music", name_suffix: str = ""
     ) -> None:
         """Updates activity object from current channel playing"""
 
-        self.state = "Playing music from SXM"
-        self.name = f"SXM {channel.pretty_name}"
-        self.large_image_url = None
-        self.large_image_text = None
+        self.state = state
+        self.name = self.details = name_suffix
+
+        if song is not None:
+            self.name = self.details = song.pretty_name + name_suffix
+            self.large_image_url = song.image_url
+            if song.album is not None:
+                self.large_image_text = f"{song.album} by {song.artist}"
+
+
+class SXMActivity(SongActivity):
+    def __init__(
+        self,
+        start: Optional[datetime],
+        radio_time: Optional[datetime],
+        channel: XMChannel,
+        live_channel: XMLiveChannel,
+        **kwargs,
+    ):
+
+        if start is None:
+            self._start = 0.0
+        else:
+            self._start = start.timestamp() * 1000.0
+        self._end = 0.0
+        self.assets = kwargs.pop("assets", {})
+        self.party = kwargs.pop("party", {})
+        self.application_id = kwargs.pop("application_id", None)
+        self.url = kwargs.pop("url", None)
+        self.flags = kwargs.pop("flags", 0)
+        self.sync_id = kwargs.pop("sync_id", None)
+        self.session_id = kwargs.pop("session_id", None)
+
+        suffix = f"SXM {channel.pretty_name}"
+        song = self.create_song(channel, live_channel, radio_time)
+        if song is None:
+            episode = live_channel.get_latest_episode(now=radio_time)
+            if episode is not None:
+                suffix = f'"{episode.episode.long_title}" on {suffix}'
+        else:
+            suffix = f" on {suffix}"
+
+        self.update_status(
+            song,
+            state="Playing music from SXM",
+            name_suffix=suffix,
+        )
+
+    def create_song(
+        self,
+        channel: XMChannel,
+        live_channel: XMLiveChannel,
+        radio_time: Optional[datetime],
+    ) -> Optional[Song]:
+        """Updates activity object from current channel playing"""
 
         latest_cut = live_channel.get_latest_cut(now=radio_time)
         if latest_cut is not None and isinstance(latest_cut.cut, XMSong):
-            song = latest_cut.cut
-            pretty_name = Song.get_pretty_name(song.title, song.artists[0].name)
-            self.name = f"{pretty_name} on {self.name}"
+            image_url = (
+                None
+                if latest_cut.cut.album is None
+                else get_art_url_by_size(latest_cut.cut.album.arts, "MEDIUM")
+            )
+            return Song(
+                guid="",
+                title=latest_cut.cut.title,
+                artist=latest_cut.cut.artists[0].name,
+                air_time=latest_cut.time,
+                channel=channel.id,
+                file_path="",
+                image_url=image_url,
+            )
 
-            if song.album is not None:
-                album = song.album
-                if album.title is not None:
-                    self.large_image_text = f"{album.title} by {song.artists[0].name}"
-
-                self.large_image_url = get_art_url_by_size(album.arts, "MEDIUM")
+        return None
 
 
 class ReactionCarousel:
@@ -155,23 +204,21 @@ class ReactionCarousel:
 
 @dataclass
 class SXMCutCarousel(ReactionCarousel):
-    items: list[XMCut]
-    latest: XMCut
+    items: list[XMCutMarker]
+    latest: XMCutMarker
     channel: XMChannel
     body: str
 
     @property
-    def current(self) -> XMCut:
+    def current(self) -> XMCutMarker:
         return super().current
 
     def _get_footer(self, state: PlayerState):
         if self.current == self.latest:
             return f"Now Playing | {self.index+1}/{len(self.items)} Recent Songs"
 
-        now = state.radio_time
-        seconds_ago = int((now - self.current.time) / 1000)
-        time_delta = timedelta(seconds=seconds_ago)
-        time_string = naturaltime(time_delta)
+        now = state.radio_time or datetime.now(timezone.utc)
+        time_string = naturaltime(now - self.current.time)
 
         return (
             f"About {time_string} ago | "
@@ -185,6 +232,9 @@ class SXMCutCarousel(ReactionCarousel):
             await self.message.edit(embed=embed)
 
     def get_message_kwargs(self, state: PlayerState) -> dict:
+        if state.live is None:
+            raise ValueError("Nothing is playing")
+
         episode = state.live.get_latest_episode(self.latest.time)
 
         return {

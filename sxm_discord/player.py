@@ -2,7 +2,6 @@ import os
 from typing import List, Optional, Tuple, Type
 
 import click
-
 from sxm_player.models import PlayerState
 from sxm_player.players import BasePlayer, Option
 from sxm_player.runner import Runner
@@ -12,19 +11,13 @@ from .bot import DiscordWorker
 
 
 class DiscordPlayer(BasePlayer):
-    params = [
+    params: List[click.Parameter] = [
         Option("--token", required=True, type=str, help="Discord bot token"),
         Option(
-            "--global-prefix",
+            "--root-command",
             type=str,
-            default="/music ",
-            help="Main Discord bot command prefix",
-        ),
-        Option(
-            "--sxm-prefix",
-            type=str,
-            default="/sxm ",
-            help="SXM Discord bot command prefix (short for `/music sxm `)",
+            default="music",
+            help="Root slash command",
         ),
         Option(
             "--description",
@@ -41,7 +34,7 @@ class DiscordPlayer(BasePlayer):
 
     @staticmethod
     def get_params() -> List[click.Parameter]:
-        return DiscordPlayer.params  # type: ignore
+        return DiscordPlayer.params
 
     @staticmethod
     def get_worker_args(
@@ -54,11 +47,10 @@ class DiscordPlayer(BasePlayer):
             processed_folder = os.path.join(kwargs["output_folder"], "processed")
 
         params = {
-            "token": context.params["token"],
-            "global_prefix": context.params["global_prefix"],
-            "sxm_prefix": context.params["sxm_prefix"],
-            "description": context.params["description"],
-            "output_channel_id": context.params["output_channel_id"],
+            "token": context.meta["token"],
+            "root_command": context.meta["root_command"],
+            "description": context.meta["description"],
+            "output_channel_id": context.meta["output_channel_id"],
             "processed_folder": processed_folder,
             "sxm_status": state.sxm_running,
             "stream_data": state.stream_data,

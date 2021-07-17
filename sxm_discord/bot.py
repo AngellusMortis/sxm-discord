@@ -1,16 +1,16 @@
 import asyncio
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Union
 
 from discord import Activity, Game, Intents, TextChannel, VoiceChannel
 from discord.ext.commands import BadArgument, Bot, Cog
-from discord_slash import SlashCommand, SlashContext, cog_ext
-from discord_slash.utils.manage_commands import create_option
+from discord_slash import SlashCommand, SlashContext, cog_ext  # type: ignore
+from discord_slash.utils.manage_commands import create_option  # type: ignore
 from sxm.models import XMChannel
 from sxm_player.models import Episode, PlayerState, Song
-from sxm_player.queue import Event, EventMessage
+from sxm_player.queue import EventMessage, EventTypes
 from sxm_player.signals import TerminateInterrupt
 from sxm_player.workers import (
     HLSStatusSubscriber,
@@ -23,6 +23,7 @@ from .converters import CountConverter, VolumeConverter
 from .models import (
     ArchivedSongCarousel,
     ReactionCarousel,
+    SongActivity,
     SXMActivity,
     SXMCutCarousel,
     UpcomingSongCarousel,
@@ -30,16 +31,16 @@ from .models import (
 from .music import AudioPlayer, PlayType
 from .sxm import SXMCommands
 from .utils import (
+    generate_embed_from_archived,
     generate_now_playing_embed,
     get_recent_songs,
     send_message,
-    generate_embed_from_archived,
 )
 
 CAROUSEL_TIMEOUT = 30
 
 
-class DiscordWorker(  # type: ignore
+class DiscordWorker(
     InterruptableWorker,
     HLSStatusSubscriber,
     SXMStatusSubscriber,
@@ -49,8 +50,7 @@ class DiscordWorker(  # type: ignore
 ):
     bot: Bot
     slash: SlashCommand
-    global_prefix: str
-    local_prefix: dict
+    root_command: str
     token: str
     output_channel: Optional[TextChannel] = None
     player: AudioPlayer
@@ -64,15 +64,16 @@ class DiscordWorker(  # type: ignore
     def __init__(
         self,
         token: str,
-        global_prefix: str,
-        sxm_prefix: str,
+        root_command: str,
         description: str,
         output_channel_id: Optional[int],
         processed_folder: str,
         sxm_status: bool,
         stream_data: Tuple[Optional[str], Optional[str]] = (None, None),
         channels: Optional[List[dict]] = None,
-        raw_live_data: Tuple[Optional[float], Optional[float], Optional[dict]] = (
+        raw_live_data: Tuple[
+            Optional[datetime], Optional[timedelta], Optional[dict]
+        ] = (
             None,
             None,
             None,
@@ -90,18 +91,17 @@ class DiscordWorker(  # type: ignore
 
         self._state = PlayerState()
         self._state.sxm_running = sxm_status
-        self._state.stream_data = stream_data
+        self._state.update_stream_data(stream_data)
         self._state.processed_folder = processed_folder
-        self._state.channels = channels  # type: ignore
+        self._state.update_channels(channels)
         self._state.set_raw_live(raw_live_data)
         self._event_queues = [self.sxm_status_queue, self.hls_stream_queue]
 
-        self.global_prefix = global_prefix
-        self.local_prefix = {"sxm": sxm_prefix}
+        self.root_command = root_command
 
         self.token = token
         self.bot = Bot(
-            command_prefix=self.global_prefix,
+            command_prefix=self.root_command,
             description=description,
             intents=Intents.default(),
         )
@@ -148,7 +148,7 @@ class DiscordWorker(  # type: ignore
         if self._output_channel_id is not None:
             for channel in self.bot.get_all_channels():
                 if channel.id == self._output_channel_id:
-                    self.output_channel = channel
+                    self.output_channel = channel  # type: ignore
                     break
 
             if self.output_channel is None:
@@ -159,7 +159,7 @@ class DiscordWorker(  # type: ignore
                 self._log.info(f"output channel: {self.output_channel.id}")
 
         self._log.info(f"logged in as {user} (id: {user.id})")
-        await self.bot_output(f"Accepting `{self.global_prefix}` commands")
+        await self.bot_output(f"Accepting `{self.root_command}` commands")
 
         if self._state.sxm_running:
             await self._sxm_running_message()
@@ -240,6 +240,10 @@ class DiscordWorker(  # type: ignore
                     )
                 else:
                     self._log.debug("Could not update status, live is none")
+            elif self.player.current is not None and isinstance(
+                self.player.current.audio_file, Song
+            ):
+                activity = SongActivity(song=self.player.current.audio_file)
             else:
                 activity = Game(name=self.player.current.audio_file.pretty_name)
 
@@ -257,26 +261,27 @@ class DiscordWorker(  # type: ignore
                 del self.carousels[key]
 
     async def _handle_event(self, event: EventMessage):
-        if event.msg_type == Event.SXM_STATUS:
+        if event.msg_type == EventTypes.SXM_STATUS:
             self._state.sxm_running = event.msg
-        elif event.msg_type == Event.HLS_STREAM_STARTED:
-            self._state.stream_data = event.msg
+        elif event.msg_type == EventTypes.HLS_STREAM_STARTED:
+            self._state.update_stream_data(event.msg)
 
             if self.player.play_type == PlayType.LIVE or self.player.play_type is None:
 
                 if self.player.play_type == PlayType.LIVE:
                     await self.player.stop(disconnect=False)
 
-                await self.player.add_live_stream(
-                    self._state.get_channel(event.msg[0]), event.msg[1]
-                )
+                xm_channel = self._state.get_channel(event.msg[0])
+
+                if xm_channel is not None:
+                    await self.player.add_live_stream(xm_channel, event.msg[1])
             else:
                 self._log.debug("Ignoring new HLS stream")
-        elif event.msg_type == Event.UPDATE_METADATA:
+        elif event.msg_type == EventTypes.UPDATE_METADATA:
             self._state.set_raw_live(event.msg)
-        elif event.msg_type == Event.UPDATE_CHANNELS:
-            self._state.channels = event.msg
-        elif event.msg_type == Event.KILL_HLS_STREAM:
+        elif event.msg_type == EventTypes.UPDATE_CHANNELS:
+            self._state.update_channels(event.msg)
+        elif event.msg_type == EventTypes.KILL_HLS_STREAM:
             await self.player.stop(kill_hls=False)
             if event.msg_src == self.name:
                 self._pending = None
@@ -330,6 +335,7 @@ class DiscordWorker(  # type: ignore
         if not await is_playing(ctx):
             return
 
+        channel: VoiceChannel = self.player.voice.channel  # type: ignore
         if self.player.play_type == PlayType.LIVE:
             if self._state.stream_channel is None or self.player.voice is None:
                 return
@@ -337,7 +343,7 @@ class DiscordWorker(  # type: ignore
             xm_channel, embed = generate_now_playing_embed(self._state)
             message = (
                 f"Currently playing **{xm_channel.pretty_name}** on "
-                f"**{self.player.voice.channel.mention}**"
+                f"**{channel.mention}**"
             )
             await send_message(ctx, message, embed=embed)
         elif (
@@ -346,8 +352,6 @@ class DiscordWorker(  # type: ignore
             and self.player.voice is not None
         ):
             name = self.player.current.audio_file.bold_name
-            channel = self.player.voice.channel
-
             await send_message(
                 ctx,
                 f"Currently playing {name} on **{channel.mention}**",
@@ -514,11 +518,11 @@ class DiscordWorker(  # type: ignore
 
         if self.player.play_type == PlayType.LIVE:
             await send_message(ctx, "Live radio playing, cannot get upcoming")
-        else:
+        elif self.player.current is not None:
             carousel = UpcomingSongCarousel(
                 items=list(self.player.upcoming),
                 body="Upcoming songs/shows:",
-                latest=self.player.current,
+                latest=self.player.current.audio_file,
             )
             await self.create_carousel(ctx, carousel)
 

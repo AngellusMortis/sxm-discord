@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../sxm-client"
+		},
+		{
+			"path": "../../sxm-player"
+		},
+		{
+			"path": "../"
+		}
+	],
+	"settings": {
+		"python.pythonPath": "/usr/local/bin/python"
+	}
+}

@@ -1,7 +1,7 @@
 from discord import TextChannel
-from discord_slash import SlashContext
+from discord_slash import SlashContext  # type: ignore
 
-from .utils import send_message, get_cog
+from sxm_discord.utils import get_cog, send_message
 
 __all__ = ["no_pm", "require_voice"]
 

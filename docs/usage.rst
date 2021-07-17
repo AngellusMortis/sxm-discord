@@ -31,29 +31,19 @@ Command to start the bot
     $ sxm-player sxm_discord.DiscordPlayer --token discord_bot_token
 
 
-By default, all of the bot commands are prefixed with `/music `, if you would
-like that to be something different, you can. This will set the command prefix
-to `$`.
+By default, the bot uses the slash command `/music`, if you would like that
+to be something different, you can. This will use the slash command `/stuff`.
 
 .. code-block:: console
 
-    $ sxm-player sxm_discord.DiscordPlayer --global_prefix $
+    $ sxm-player sxm_discord.DiscordPlayer --root_command stuff
 
 
 Discord Commands
 ================
 
-This assumes you have not changed the bot prefix with the `--global_prefix`
+This assumes you have not changed the bot prefix with the `--root_command`
 option. Otherwise your bot commands will be a little different.
-
-Help
-----
-
-All of the commands can be PM to a user with detailed information:
-
-.. code-block:: console
-
-    $ /music help
 
 Utility
 -------
