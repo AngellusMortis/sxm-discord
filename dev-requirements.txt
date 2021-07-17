@@ -229,6 +229,7 @@ pydantic==1.8.2
     # via
     #   sxm
     #   sxm-player
+    #   sxm_discord (pyproject.toml)
 pyflakes==2.3.1
     # via flake8
 pygments==2.9.0

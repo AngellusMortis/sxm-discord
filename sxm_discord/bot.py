@@ -401,7 +401,7 @@ class DiscordWorker(
             return await self._recent_live(ctx, count)
 
         carousel = ArchivedSongCarousel(
-            list(self.player.recent[:count]), body="Recent songs/shows"
+            items=list(self.player.recent[:count]), body="Recent songs/shows"
         )
         await self.create_carousel(ctx, carousel)
 

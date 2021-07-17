@@ -88,6 +88,7 @@ pydantic==1.8.2
     # via
     #   sxm
     #   sxm-player
+    #   sxm_discord (pyproject.toml)
 pygments==2.9.0
     # via ipython
 pynacl==1.4.0

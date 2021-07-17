@@ -1,11 +1,10 @@
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 from discord import Embed, Game, Message, PCMVolumeTransformer, errors
-from discord.ext.commands import Command, Group
 from discord_slash import SlashContext  # type: ignore
 from humanize import naturaltime  # type: ignore
+from pydantic import BaseModel  # pylint: disable=no-name-in-module
 from sxm.models import XMChannel, XMCutMarker, XMLiveChannel, XMSong
 from sxm_player.models import Episode, PlayerState, Song
 
@@ -17,34 +16,22 @@ from .utils import (
 )
 
 
-@dataclass
-class QueuedItem:
+class QueuedItem(BaseModel):
     audio_file: Union[Song, Episode, None] = None
     stream_data: Optional[Tuple[XMChannel, str]] = None
 
     source: Optional[PCMVolumeTransformer] = None
 
+    class Config:
+        arbitrary_types_allowed = True
 
-class AudioQueuedItem(QueuedItem):
+
+class ArchivedQueuedItem(QueuedItem):
     audio_file: Union[Song, Episode]
 
 
-class MusicCommand(Command):
-    @property
-    def cog_name(self):
-        return "Music"
-
-
-class MusicPlayerGroup(Group):
-    @property
-    def cog_name(self):
-        return "Music Player"
-
-
-class SXMCommand(Command):
-    @property
-    def cog_name(self):
-        return "SXM Player"
+class SXMQueuedItem(QueuedItem):
+    stream_data: Tuple[XMChannel, str]
 
 
 class SongActivity(Game):
@@ -145,11 +132,14 @@ class SXMActivity(SongActivity):
         return None
 
 
-class ReactionCarousel:
-    items: list
+class ReactionCarousel(BaseModel):
+    items: List[Any]
     index: int = 0
     last_update: Optional[datetime] = None
     message: Optional[Message] = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
     @property
     def current(self):
@@ -202,7 +192,6 @@ class ReactionCarousel:
         self.last_update = datetime.now()
 
 
-@dataclass
 class SXMCutCarousel(ReactionCarousel):
     items: List[XMCutMarker]
     latest: XMCutMarker
@@ -248,7 +237,6 @@ class SXMCutCarousel(ReactionCarousel):
         }
 
 
-@dataclass
 class ArchivedSongCarousel(ReactionCarousel):
     items: List[Union[Song, Episode]]
     body: str
@@ -275,7 +263,6 @@ class ArchivedSongCarousel(ReactionCarousel):
         }
 
 
-@dataclass
 class UpcomingSongCarousel(ArchivedSongCarousel):
     latest: Union[Song, Episode, None] = None
 

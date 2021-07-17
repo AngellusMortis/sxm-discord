@@ -13,6 +13,7 @@ requires =[
   'discord-py-slash-command',
   'humanize',
   'sxm-player>=0.2.1',
+  'pydantic',
   'tabulate',
 ]
 

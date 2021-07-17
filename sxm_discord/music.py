@@ -12,7 +12,7 @@ from sxm.models import XMChannel
 from sxm_player.models import DBSong, Episode, Song
 from sxm_player.queue import EventMessage, EventTypes, Queue
 
-from sxm_discord.models import AudioQueuedItem, QueuedItem
+from sxm_discord.models import ArchivedQueuedItem, QueuedItem, SXMQueuedItem
 
 
 class PlayType(Enum):
@@ -222,7 +222,7 @@ class AudioPlayer:
 
         item: Optional[QueuedItem] = None
         if stream_data is None:
-            item = AudioQueuedItem(audio_file=file_info, stream_data=None)
+            item = ArchivedQueuedItem(audio_file=file_info)
             self.upcoming.append(item.audio_file)
         elif stream_data[1] is None:
             self._log.debug(f"trigging HLS stream for channel {stream_data[0].id}")
@@ -237,9 +237,7 @@ class AudioPlayer:
             if not success:
                 self._log.warning("Could not trigger HLS stream")
         else:
-            item = QueuedItem(
-                audio_file=None, stream_data=(stream_data[0], stream_data[1])
-            )
+            item = SXMQueuedItem(stream_data=(stream_data[0], stream_data[1]))
 
         if item is not None:
             self._log.debug(f"adding queued item: {item}")
