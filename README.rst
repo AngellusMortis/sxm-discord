@@ -3,8 +3,21 @@ sxm-discord
 ===========
 
 .. image:: https://readthedocs.org/projects/sxm-discord/badge/?version=latest
-        :target: https://sxm-discord.readthedocs.io/en/latest/?badge=latest
-        :alt: Documentation Status
+    :target: https://sxm-discord.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
+
+.. image:: https://github.com/AngellusMortis/sxm-discord/actions/workflows/ci.yml/badge.svg
+    :target: https://github.com/AngellusMortis/sxm-discord/actions/workflows/ci.yml
+    :alt: CI Status
+
+.. image:: https://api.codeclimate.com/v1/badges/0c0e1c828d5bd64fe4a8/maintainability
+    :target: https://codeclimate.com/github/AngellusMortis/sxm-discord/maintainability
+    :alt: Maintainability
+
+.. image:: https://pypip.in/v/sxm-discord/badge.png
+    :target: https://pypi.org/project/sxm-discord/
+    :alt: Latest PyPI version
+
 
 .. warning:: Designed for PERSONAL USE ONLY
 

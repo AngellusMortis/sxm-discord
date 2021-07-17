@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 
 from discord import Embed, Game, Message, PCMVolumeTransformer, errors
 from discord.ext.commands import Command, Group
@@ -204,7 +204,7 @@ class ReactionCarousel:
 
 @dataclass
 class SXMCutCarousel(ReactionCarousel):
-    items: list[XMCutMarker]
+    items: List[XMCutMarker]
     latest: XMCutMarker
     channel: XMChannel
     body: str
@@ -250,7 +250,7 @@ class SXMCutCarousel(ReactionCarousel):
 
 @dataclass
 class ArchivedSongCarousel(ReactionCarousel):
-    items: list[Union[Song, Episode]]
+    items: List[Union[Song, Episode]]
     body: str
 
     @property

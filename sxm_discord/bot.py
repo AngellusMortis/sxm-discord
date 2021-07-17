@@ -2,7 +2,7 @@ import asyncio
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 
 from discord import Activity, Game, Intents, TextChannel, VoiceChannel
 from discord.ext.commands import BadArgument, Bot, Cog
@@ -54,7 +54,7 @@ class DiscordWorker(
     token: str
     output_channel: Optional[TextChannel] = None
     player: AudioPlayer
-    carousels: dict[int, ReactionCarousel] = {}
+    carousels: Dict[int, ReactionCarousel] = {}
 
     _output_channel_id: Optional[int] = None
     _last_update: float = 0
