@@ -29,8 +29,8 @@ from sxm_discord.utils import (
     send_message,
 )
 
-from .checks import is_playing, no_pm, require_matching_voice, require_voice
-from .converters import CountConverter, VolumeConverter
+from .checks import is_playing, no_pm, require_voice
+from .converters import CountConverter
 from .models import (
     ArchivedSongCarousel,
     ReactionCarousel,
@@ -483,38 +483,6 @@ class DiscordWorker(
         await send_message(
             ctx, f"Successfully joined {ctx.author.voice.channel.mention}"
         )
-
-    @cog_ext.cog_subcommand(
-        base=get_root_command(),
-        options=[
-            create_option(
-                name="amount",
-                description="Volume Level (1-100)",
-                option_type=4,
-                required=False,
-            )
-        ],
-    )
-    async def volume(self, ctx: SlashContext, amount: Optional[int] = None) -> None:
-        """Changes the volume of music"""
-
-        if not await no_pm(ctx) or not await require_matching_voice(ctx):
-            return
-
-        try:
-            amount_percent = await VolumeConverter().convert(ctx, amount)
-        except BadArgument as e:
-            await send_message(ctx, str(e))
-            return
-
-        if amount_percent is None:
-            await send_message(
-                ctx, f"Volume is currently {int(self.player.volume * 100)}%"
-            )
-            return
-
-        self.player.volume = amount_percent
-        await send_message(ctx, f"Set volume to {int(self.player.volume * 100)}%")
 
 
 class DiscordArchivedWorker(

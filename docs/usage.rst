@@ -62,15 +62,6 @@ stopping the tunes.
 
     $ /music summon
 
-Change volumes. Numbers range from 0% to 100%, bot always starts at 25%.
-No argument retrieves volume level.
-
-.. code-block:: console
-
-    $ /music volume       # gets current volume level
-    $ /music volume 100   # sets volume to 100%
-    $ /music volume 25    # sets volume to default of 25%
-
 Stops all music playback and kicks bot of out voice channel.
 
 .. code-block:: console

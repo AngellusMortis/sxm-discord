@@ -5,7 +5,7 @@ from enum import Enum, auto
 from random import SystemRandom
 from typing import List, Optional, Tuple, Union
 
-from discord import FFmpegPCMAudio, PCMVolumeTransformer, VoiceChannel, VoiceClient
+from discord import FFmpegOpusAudio, VoiceChannel, VoiceClient
 from sqlalchemy import and_
 from sqlalchemy.orm.session import Session
 from sxm.models import XMChannel
@@ -38,7 +38,6 @@ class AudioPlayer:
     _current: Optional[QueuedItem] = None
     _playlist_data: Optional[Tuple[List[XMChannel], Session]] = None
     _voice: Optional[VoiceClient] = None
-    _volume: float = 0.25
 
     def __init__(self, event_queue: Queue, loop: asyncio.AbstractEventLoop):
 
@@ -84,25 +83,6 @@ class AudioPlayer:
         if self._current is not None:
             return self._current
         return None
-
-    @property
-    def volume(self) -> float:
-        """Gets current volume level"""
-
-        return self._volume
-
-    @volume.setter
-    def volume(self, volume: float) -> None:
-        """Sets current volume level"""
-
-        if volume < 0.0:
-            volume = 0.0
-        elif volume > 1.0:
-            volume = 1.0
-
-        self._volume = volume
-        if self._current is not None and self._current.source is not None:
-            self._current.source.volume = self._volume
 
     async def stop(self, disconnect=True, kill_hls=True):
         """Stops the `AudioPlayer`"""
@@ -303,7 +283,7 @@ class AudioPlayer:
                     continue
 
                 log_item = self._current.stream_data[0].id
-                new_source = FFmpegPCMAudio(
+                self._current.source = FFmpegOpusAudio(
                     self._current.stream_data[1],
                     before_options="-f mpegts",
                     options="-loglevel fatal",
@@ -323,11 +303,11 @@ class AudioPlayer:
                 self.recent = self.recent[:10]
 
                 log_item = self._current.audio_file.file_path
-                new_source = FFmpegPCMAudio(self._current.audio_file.file_path)
+                self._current.source = FFmpegOpusAudio(
+                    self._current.audio_file.file_path
+                )
 
-            self._current.source = PCMVolumeTransformer(new_source, volume=self._volume)
             self._log.info(f"playing {log_item}")
-
             self._voice.play(self._current.source, after=self._song_end)
 
             await self._player_event.wait()

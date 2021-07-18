@@ -2,6 +2,11 @@
 History
 =======
 
+0.2.3 (2021-08-18)
+------------------
+
+* Removes `volume` command and uses `FFmpegOpusAudio`
+
 0.2.2 (2021-08-17)
 ------------------
 

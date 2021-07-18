@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple, Union
 
-from discord import Embed, Game, Message, PCMVolumeTransformer, errors
+from discord import Embed, FFmpegOpusAudio, Game, Message, errors
 from discord_slash import SlashContext  # type: ignore
 from humanize import naturaltime  # type: ignore
 from pydantic import BaseModel  # pylint: disable=no-name-in-module
@@ -20,7 +20,7 @@ class QueuedItem(BaseModel):
     audio_file: Union[Song, Episode, None] = None
     stream_data: Optional[Tuple[XMChannel, str]] = None
 
-    source: Optional[PCMVolumeTransformer] = None
+    source: Optional[FFmpegOpusAudio] = None
 
     class Config:
         arbitrary_types_allowed = True

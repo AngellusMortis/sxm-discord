@@ -66,22 +66,3 @@ class IntRangeConverter(Converter):
 @dataclass
 class CountConverter(IntRangeConverter):
     name: str = "count"
-
-
-@dataclass
-class VolumeConverter(IntRangeConverter):
-    max_number: int = 100
-    name: str = "amount"
-
-    async def convert(  # type: ignore
-        self, ctx, argument: Union[str, int, None]
-    ) -> Union[float, None]:
-        return_value: Union[float, None] = None
-
-        if argument is not None:
-            if isinstance(argument, str) and argument[-1] == "%":
-                argument = argument[:-1]
-            argument = await super().convert(ctx, argument)
-            return_value = float(argument) / 100.0
-
-        return return_value
