@@ -2,6 +2,12 @@
 History
 =======
 
+0.2.2 (2021-08-17)
+------------------
+
+* Adds env var for `--root-command`: `SXM_DISCORD_ROOT_COMMAND`
+* Adds env var for `--output-channel-id`: `SXM_DISCORD_OUTPUT_CHANNEL`
+
 0.2.1 (2021-08-17)
 ------------------
 

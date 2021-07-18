@@ -24,6 +24,7 @@ class DiscordPlayer(BasePlayer):
             type=str,
             default="music",
             help="Root slash command",
+            envvar="SXM_DISCORD_ROOT_COMMAND",
         ),
         Option(
             "--description",
@@ -35,6 +36,7 @@ class DiscordPlayer(BasePlayer):
             "--output-channel-id",
             type=int,
             help="Discord channel ID for various bot status updates",
+            envvar="SXM_DISCORD_OUTPUT_CHANNEL",
         ),
     ]
 
