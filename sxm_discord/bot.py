@@ -176,7 +176,7 @@ class DiscordWorker(
             f"{len(self._state.channels)} channels available"
         )
 
-    async def event_loop(self):
+    async def _event_loop(self):
         while not self.shutdown_event.is_set():
             was_connected = self._state.sxm_running
 
@@ -209,6 +209,12 @@ class DiscordWorker(
                 self._last_update = time.time()
 
             await asyncio.sleep(0.1)
+
+    async def event_loop(self):
+        try:
+            await self._event_loop()
+        except Exception as e:
+            self._log.exception("Error doing event loop!")
 
     async def create_carousel(self, ctx: SlashContext, carousel: ReactionCarousel):
         await carousel.update(self._state, ctx)

@@ -15,7 +15,7 @@ anyio==3.2.1
     # via httpcore
 appdirs==1.4.4
     # via black
-astroid==2.6.2
+astroid==2.6.4
     # via pylint
 async-timeout==3.0.1
     # via aiohttp
@@ -191,11 +191,11 @@ packaging==21.0
     #   tox
 parso==0.8.2
     # via jedi
-pathspec==0.8.1
+pathspec==0.9.0
     # via black
 pbr==5.6.0
     # via stevedore
-pep517==0.10.0
+pep517==0.11.0
     # via pip-tools
 pexpect==4.8.0
     # via ipython
@@ -237,7 +237,7 @@ pygments==2.9.0
     #   ipython
     #   rich
     #   sphinx
-pylint==2.9.3
+pylint==2.9.4
     # via sxm_discord (pyproject.toml)
 pymongo[srv,tls]==3.11.4
     # via snooty-lextudio
@@ -327,9 +327,9 @@ sqlalchemy-stubs==0.4
     # via sxm_discord (pyproject.toml)
 stevedore==3.3.0
     # via bandit
-sxm==0.2.5
+sxm==0.2.6
     # via sxm-player
-sxm-player==0.2.1
+sxm-player==0.2.3
     # via sxm_discord (pyproject.toml)
 tabulate==0.8.9
     # via sxm_discord (pyproject.toml)
@@ -342,7 +342,6 @@ toml==0.10.2
     #   flit
     #   flit-core
     #   mypy
-    #   pep517
     #   pylint
     #   pyproject-flake8
     #   pytest
@@ -350,7 +349,9 @@ toml==0.10.2
     #   snooty-lextudio
     #   tox
 tomli==1.0.4
-    # via black
+    # via
+    #   black
+    #   pep517
 tox==3.24.0
     # via sxm_discord (pyproject.toml)
 traitlets==5.0.5
