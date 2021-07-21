@@ -88,7 +88,7 @@ class DiscordWorker(
         hls_stream_queue = kwargs.pop("hls_stream_queue")
         HLSStatusSubscriber.__init__(self, hls_stream_queue)
 
-        kwargs["name"] = "Music"
+        kwargs["name"] = "music"
         super().__init__(*args, **kwargs)
 
         self._state = PlayerState()
