@@ -167,6 +167,7 @@ class DiscordWorker(
 
     # helper methods
     async def bot_output(self, message: str):
+        self._log.info(f"Bot output: {message}")
         if self.output_channel is not None:
             await send_message(self.output_channel, message)
 
@@ -206,7 +207,7 @@ class DiscordWorker(
 
             if time.time() > (self._last_update + self._update_interval):
                 await self.update()
-                self._last_update = time.time()
+                self._last_update = time.monotonic()
 
             await asyncio.sleep(0.1)
 
@@ -243,6 +244,7 @@ class DiscordWorker(
             else:
                 activity = Game(name=self.player.current.audio_file.pretty_name)
 
+        self._log.debug(f"Updating bot's status: {activity}")
         try:
             await self.bot.change_presence(activity=activity)
         except AttributeError:
