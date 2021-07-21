@@ -205,7 +205,7 @@ class DiscordWorker(
                 if self.player.is_playing and self.player.play_type == PlayType.LIVE:
                     await self.player.stop(disconnect=False)
 
-            if time.time() > (self._last_update + self._update_interval):
+            if time.monotonic() > (self._last_update + self._update_interval):
                 await self.update()
                 self._last_update = time.monotonic()
 
