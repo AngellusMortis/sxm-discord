@@ -243,6 +243,14 @@ class DiscordWorker(
                 activity = SongActivity(song=self.player.current.audio_file)
             else:
                 activity = Game(name=self.player.current.audio_file.pretty_name)
+        elif self.player.voice is not None:
+            self._log.info("In voice, but nothing is playing, exiting...")
+            await self.player.stop(kill_hls=False)
+            if self._pending is not None and self._state.sxm_running:
+                self._log.info("SXM stream disappeared. Restarting...")
+                self.bot.loop.create_task(
+                    self._reset_live(self._pending[1], self._pending[0])
+                )
 
         self._log.debug(f"Updating bot's status: {activity}")
         try:
