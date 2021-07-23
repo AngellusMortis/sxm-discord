@@ -2,23 +2,29 @@
 History
 =======
 
-0.2.3 (2021-08-18)
+0.2.4 (2021-07-21)
+------------------
+
+* Adds more logging
+* Fixes `sxm_player.music` logger name
+
+0.2.3 (2021-07-18)
 ------------------
 
 * Removes `volume` command and uses `FFmpegOpusAudio`
 
-0.2.2 (2021-08-17)
+0.2.2 (2021-07-17)
 ------------------
 
 * Adds env var for `--root-command`: `SXM_DISCORD_ROOT_COMMAND`
 * Adds env var for `--output-channel-id`: `SXM_DISCORD_OUTPUT_CHANNEL`
 
-0.2.1 (2021-08-17)
+0.2.1 (2021-07-17)
 ------------------
 
 * Adds env var for `--token`: `SXM_DISCORD_TOKEN`
 
-0.2.0 (2021-08-17)
+0.2.0 (2021-07-17)
 ------------------
 
 * Replaces setuptools with filt

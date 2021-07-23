@@ -9,7 +9,7 @@ aiohttp==3.7.4.post0
     #   discord-py-slash-command
     #   discord.py
     #   sxm
-anyio==3.2.1
+anyio==3.3.0
     # via httpcore
 async-timeout==3.0.1
     # via aiohttp
@@ -106,7 +106,7 @@ sniffio==1.2.0
     #   anyio
     #   httpcore
     #   httpx
-sqlalchemy==1.4.21
+sqlalchemy==1.4.22
     # via sxm-player
 sxm==0.2.6
     # via sxm-player
