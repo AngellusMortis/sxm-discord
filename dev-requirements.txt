@@ -327,9 +327,9 @@ sqlalchemy-stubs==0.4
     # via sxm_discord (pyproject.toml)
 stevedore==3.3.0
     # via bandit
-sxm==0.2.6
+sxm==0.2.8
     # via sxm-player
-sxm-player==0.2.3
+sxm-player==0.2.4
     # via sxm_discord (pyproject.toml)
 tabulate==0.8.9
     # via sxm_discord (pyproject.toml)
