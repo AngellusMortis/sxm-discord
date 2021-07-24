@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple, Union
 
-from discord import Embed, FFmpegOpusAudio, Game, Message, errors, Client
+from discord import Client, Embed, FFmpegOpusAudio, Game, Message, errors
 from discord.channel import DMChannel, GroupChannel, TextChannel
 from discord_slash import SlashContext  # type: ignore
 from humanize import naturaltime  # type: ignore
