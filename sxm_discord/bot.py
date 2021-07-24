@@ -62,6 +62,7 @@ class DiscordWorker(
     _output_channel_id: Optional[int] = None
     _last_update: float = 0
     _update_interval: float = 5
+    _voice_timeout: int = 0
     _pending: Optional[Tuple[XMChannel, VoiceChannel]] = None
 
     def __init__(
@@ -223,34 +224,52 @@ class DiscordWorker(
         if len(carousel.items) > 1 and carousel.message is not None:
             self.carousels[carousel.message.id] = carousel
 
+    def _get_acvitity(self):
+        if self.player.play_type == PlayType.LIVE:
+            if self._state.live is not None:
+                xm_channel = self._state.get_channel(self._state.stream_channel)
+                activity = SXMActivity(
+                    start=self._state.start_time,
+                    radio_time=self._state.radio_time,
+                    channel=xm_channel,
+                    live_channel=self._state.live,
+                )
+            else:
+                self._log.debug("Could not update status, live is none")
+        elif self.player.current is not None and isinstance(
+            self.player.current.audio_file, Song
+        ):
+            activity = SongActivity(song=self.player.current.audio_file)
+        else:
+            activity = Game(name=self.player.current.audio_file.pretty_name)
+
+        return activity
+
     async def update(self):
         activity: Optional[Activity] = None
         if self.player.is_playing:
-            if self.player.play_type == PlayType.LIVE:
-                if self._state.live is not None:
-                    xm_channel = self._state.get_channel(self._state.stream_channel)
-                    activity = SXMActivity(
-                        start=self._state.start_time,
-                        radio_time=self._state.radio_time,
-                        channel=xm_channel,
-                        live_channel=self._state.live,
-                    )
-                else:
-                    self._log.debug("Could not update status, live is none")
-            elif self.player.current is not None and isinstance(
-                self.player.current.audio_file, Song
-            ):
-                activity = SongActivity(song=self.player.current.audio_file)
-            else:
-                activity = Game(name=self.player.current.audio_file.pretty_name)
+            self._voice_timeout = 0
+            activity = self._get_acvitity()
         elif self.player.voice is not None:
-            self._log.info("In voice, but nothing is playing, exiting...")
-            await self.player.stop(kill_hls=False)
-            if self._pending is not None and self._state.sxm_running:
-                self._log.info("SXM stream disappeared. Restarting...")
-                self.bot.loop.create_task(
-                    self._reset_live(self._pending[1], self._pending[0])
-                )
+            self._voice_timeout += 1
+
+            if self._voice_timeout > 5:
+                self._log.info("In voice, but nothing is playing, exiting...")
+                await self.player.stop(kill_hls=False)
+                if self._pending is not None and self._state.sxm_running:
+                    self._log.info("SXM stream disappeared. Restarting...")
+                    self.bot.loop.create_task(
+                        self._reset_live(self._pending[1], self._pending[0])
+                    )
+        elif self.player.voice is None and self.bot.user is not None:
+            self._voice_timeout = 0
+
+            if len(self.bot.guilds) > 0:
+                guild = self.bot.guilds[0]
+                member = guild.get_member(self.bot.user.id)
+                if member.voice is not None:
+                    self._log.info("Found old voice channel for bot, leaving...")
+                    await member.move_to(None)
 
         self._log.debug(f"Updating bot's status: {activity}")
         try:

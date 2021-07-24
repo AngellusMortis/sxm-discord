@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple, Union
 
-from discord import Embed, FFmpegOpusAudio, Game, Message, errors
+from discord import Embed, FFmpegOpusAudio, Game, Message, errors, Client
+from discord.channel import DMChannel, GroupChannel, TextChannel
 from discord_slash import SlashContext  # type: ignore
 from humanize import naturaltime  # type: ignore
 from pydantic import BaseModel  # pylint: disable=no-name-in-module
@@ -153,11 +154,19 @@ class ReactionCarousel(BaseModel):
     ):
         raise NotImplementedError()
 
-    async def refresh_message(self, client):
+    async def refresh_message(self, client: Client):
+        if self.message is None:
+            return
+
+        mid = self.message.channel.id
+        channel_type = Union[TextChannel, DMChannel, GroupChannel, None]
+        channel: channel_type = client.get_channel(mid)  # type: ignore
+        if channel is None:
+            self.message = None
+            return
+
         try:
-            self.message = await client.get_channel(
-                self.message.channel.id
-            ).fetch_message(self.message.id)
+            self.message = await channel.fetch_message(self.message.id)
         except errors.NotFound:
             self.message = None
 
