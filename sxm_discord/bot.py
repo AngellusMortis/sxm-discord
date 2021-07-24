@@ -225,6 +225,7 @@ class DiscordWorker(
             self.carousels[carousel.message.id] = carousel
 
     def _get_acvitity(self):
+        activity: Optional[Activity] = None
         if self.player.play_type == PlayType.LIVE:
             if self._state.live is not None:
                 xm_channel = self._state.get_channel(self._state.stream_channel)
