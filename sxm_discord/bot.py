@@ -213,10 +213,12 @@ class DiscordWorker(
             await asyncio.sleep(0.1)
 
     async def event_loop(self):
-        try:
-            await self._event_loop()
-        except Exception:
-            self._log.exception("Error doing event loop!")
+        while True:
+            try:
+                await self._event_loop()
+            except Exception:
+                self._log.exception("Error doing event loop!")
+                await asyncio.sleep(5)
 
     async def create_carousel(self, ctx: SlashContext, carousel: ReactionCarousel):
         await carousel.update(self._state, ctx)
