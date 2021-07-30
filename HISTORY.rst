@@ -2,6 +2,14 @@
 History
 =======
 
+0.2.5 (2021-07-30)
+------------------
+
+* Fixes event loop eventually dying out
+* Improves bot automatically disconnecting from chat
+* Fixes sxm_player.music logger name
+* Adds bot logging
+
 0.2.4 (2021-07-21)
 ------------------
 
